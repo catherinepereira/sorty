@@ -61,7 +61,7 @@ def test_generate_end_to_end_through_p2d(dataset):
     async def fake_fetch(subjects, sources, limit):
         return {s: {sources[0]: [{"source": sources[0], "url": f"https://x/{s}.jpg"}]} for s in subjects}
 
-    def ok_download(url, dest):
+    def ok_download(url, dest, client=None):
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"x")
         return True

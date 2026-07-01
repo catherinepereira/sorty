@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from prompt2dataset import Dataset, load_dataset, meta_dir, save_dataset
+from prompt2dataset.ids import FALLBACK_SLUG
 
 from sorty.ids import slugify
 from sorty.recyclebin import is_binned
@@ -82,11 +83,14 @@ def dataset_root(workspace_root: Path, name: str) -> Path:
 def create_dataset(workspace_root: Path, name: str, prompt: str = "") -> Path:
     """Create an empty dataset and write its initial manifest.
 
-    Raises ValueError on a blank name or one that collides with an existing dataset.
+    Raises ValueError on a name with no usable characters or one that collides with an
+    existing dataset.
     """
     slug = slugify(name)
-    if not slug:
-        raise ValueError("Dataset name is empty after slugifying.")
+    # slugify falls back to a placeholder when a name has no slug-able ASCII characters,
+    # a dataset needs a real name, though typing "unlabeled" outright is still allowed
+    if slug == FALLBACK_SLUG and name.strip().lower() != FALLBACK_SLUG:
+        raise ValueError("Dataset name has no usable characters.")
     root = datasets_dir(workspace_root) / slug
     if (root / ".p2d" / "manifest.json").exists():
         raise ValueError(f"A dataset named {slug!r} already exists.")
