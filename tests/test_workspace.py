@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from prompt2dataset.ingest import load_dataset
+from prompt2dataset import load_dataset
 from sorty import workspace
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from prompt2dataset.models import Dataset, DatasetItem, ReviewStatus
+from prompt2dataset import Dataset, DatasetItem, ReviewStatus
 
 from sorty.ids import slugify
 

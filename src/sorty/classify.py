@@ -1,77 +1,55 @@
-"""Train a classifier and run it over the whole dataset to find label mismatches.
+"""Train a classifier and use it to find label mismatches, via prompt2dataset.
 
-Training delegates to prompt2dataset's _train, which writes model.pt and labels.json
-into .p2d/. Inference loads that TorchScript model and predicts every image with the
-same preprocessing p2d uses for validation, so a prediction here matches what training
-saw. Torch is imported lazily so the rest of Sorty works without the [train] extra.
+Training, full-dataset inference, and cross-validation all live in p2d. Sorty filters
+out recycle-bin items, bridges progress to its own Progress, and returns p2d's
+Prediction objects to the UI. Torch is imported lazily inside p2d, so this module loads
+without the [train] extra.
 """
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass
 from pathlib import Path
 
-from prompt2dataset.models import Dataset, DatasetItem
-from prompt2dataset.utils import meta_dir
+from prompt2dataset import (
+    Dataset,
+    DatasetItem,
+    Prediction,
+    crossval as p2d_crossval,
+    infer as p2d_infer,
+    model_exists,
+    torch_available,
+    train as p2d_train,
+)
+from prompt2dataset import find_mismatches as p2d_find_mismatches
+from prompt2dataset.progress import Progress as P2DProgress
 
 from sorty.recyclebin import is_binned
 from sorty.tasks import Progress
 
-# Images per forward pass during inference. Batching amortizes per-call torch overhead,
-# the same reason p2d's embedder batches
-BATCH_SIZE = 32
+__all__ = [
+    "Prediction",
+    "torch_available",
+    "model_exists",
+    "train",
+    "infer_all",
+    "crossval",
+    "find_mismatches",
+]
+
+# re-exported so app.py and tests can build predictions without a torch dependency
+find_mismatches = p2d_find_mismatches
 
 
-def torch_available() -> bool:
-    from importlib.util import find_spec
+def _bridge(progress: Progress):
+    def on_progress(p: P2DProgress) -> None:
+        progress.sync(p.total, p.done, p.message)
 
-    return find_spec("torch") is not None and find_spec("torchvision") is not None
-
-
-def model_exists(root: Path) -> bool:
-    return (meta_dir(root) / "model.pt").exists()
-
-
-@dataclass(frozen=True)
-class Mismatch:
-    item_id: str
-    label: str
-    subject: str
-    predicted: str
-    local_path: str
+    return on_progress
 
 
 def _candidates(ds: Dataset, root: Path) -> list[DatasetItem]:
     """Live items with a file on disk, skipping ones already in the recycle bin."""
-    return [
-        i for i in ds.items if not is_binned(i) and (root / i.local_path).exists()
-    ]
-
-
-def find_mismatches(
-    items: list[DatasetItem], predictions: dict[str, str]
-) -> list[Mismatch]:
-    """Items whose predicted class differs from their manifest label.
-
-    predictions maps item_id to predicted label. Items without a prediction are
-    skipped. Kept torch-free so it can be unit-tested with a stub.
-    """
-    out: list[Mismatch] = []
-    for item in items:
-        predicted = predictions.get(item.item_id)
-        if predicted is None or predicted == item.label:
-            continue
-        out.append(
-            Mismatch(
-                item_id=item.item_id,
-                label=item.label,
-                subject=item.subject or item.label,
-                predicted=predicted,
-                local_path=item.local_path,
-            )
-        )
-    return out
+    return [i for i in ds.items if not is_binned(i) and (root / i.local_path).exists()]
 
 
 def train(
@@ -84,105 +62,36 @@ def train(
     progress: Progress,
 ) -> dict:
     """Fine-tune a classifier on the dataset. Returns p2d's training report."""
-    from prompt2dataset.train import _train
-
-    progress.start(total=1, message=f"Training {model_name} for {epochs} epochs...")
-    report, _misclassified = _train(
-        root, items, model_name, epochs, val_split, img_size
-    )
-    progress.advance(message="Training complete")
-    return report
-
-
-def _predict_labels(root: Path, items: list[DatasetItem], progress: Progress) -> dict[str, str]:
-    """Predicted label per item_id, using the saved TorchScript model."""
-    import torch
-    import torchvision.transforms as T
-    from PIL import Image, UnidentifiedImageError
-
-    from prompt2dataset.train import IMAGENET_MEAN, IMAGENET_STD
-
-    md = meta_dir(root)
-    labels: list[str] = json.loads((md / "labels.json").read_text(encoding="utf-8"))
-    # jit.load runs the model's code, so it trusts this local model.pt, written by our
-    # own Train action. Importing a dataset from an untrusted source would change that
-    model = torch.jit.load(str(md / "model.pt"))
-    model.eval()
-
-    img_size = 224
-    tf = T.Compose(
-        [
-            T.Resize(int(img_size * 1.14)),
-            T.CenterCrop(img_size),
-            T.ToTensor(),
-            T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-        ]
+    return p2d_train(
+        root, items, model=model_name, epochs=epochs, val_split=val_split,
+        img_size=img_size, on_progress=_bridge(progress),
     )
 
-    progress.start(total=max(len(items), 1), message="Running classifier")
-    predictions: dict[str, str] = {}
-    with torch.no_grad():
-        for start in range(0, len(items), BATCH_SIZE):
-            chunk = items[start : start + BATCH_SIZE]
-            tensors: list = []
-            ids: list[str] = []
-            for item in chunk:
-                try:
-                    img = Image.open(root / item.local_path).convert("RGB")
-                except (UnidentifiedImageError, OSError):
-                    continue
-                tensors.append(tf(img))
-                ids.append(item.item_id)
-            if tensors:
-                preds = model(torch.stack(tensors)).argmax(dim=1).tolist()
-                for item_id, idx in zip(ids, preds):
-                    if 0 <= idx < len(labels):
-                        predictions[item_id] = labels[idx]
-            progress.advance(
-                step=len(chunk),
-                message=f"Classified {min(start + BATCH_SIZE, len(items))}/{len(items)}",
-            )
-    return predictions
 
-
-def infer_all(root: Path, ds: Dataset, progress: Progress) -> list[Mismatch]:
+def infer_all(root: Path, ds: Dataset, progress: Progress) -> list[Prediction]:
     """Predict every image and return the ones that disagree with their label.
 
-    This uses the single trained model, so images it trained on look artificially
-    correct. crossval judges every image with a model that never saw it.
+    Uses the single trained model, so images it trained on look artificially correct.
+    crossval judges every image with a model that never saw it.
     """
+    return p2d_infer(root, _candidates(ds, root), on_progress=_bridge(progress))
+
+
+def crossval(root: Path, ds: Dataset, folds: int, epochs: int, progress: Progress) -> list[Prediction]:
+    """Out-of-fold cross-validation, mapping p2d's flagged paths back to predictions."""
     items = _candidates(ds, root)
-    predictions = _predict_labels(root, items, progress)
-    return find_mismatches(items, predictions)
-
-
-def crossval(root: Path, ds: Dataset, folds: int, epochs: int, progress: Progress) -> list[Mismatch]:
-    """Out-of-fold cross-validation over the whole dataset.
-
-    Delegates to p2d's crossval, which trains one model per fold and predicts the
-    held-out fold, so every image is judged by a model that never saw it. Returns the
-    flagged items as Mismatches, mapping p2d's absolute paths back to manifest items.
-    """
-    from prompt2dataset.crossval import _crossval
-
-    items = _candidates(ds, root)
-    progress.start(total=1, message=f"Cross-validating ({folds} folds)...")
-    flagged = _crossval(root, items, folds, epochs, img_size=224)
-
+    flagged = p2d_crossval(
+        root, items, folds=folds, epochs=epochs, on_progress=_bridge(progress)
+    )
     by_path = {str((root / i.local_path).resolve()): i for i in items}
-    out: list[Mismatch] = []
+    out: list[Prediction] = []
     for entry in flagged:
         item = by_path.get(entry["path"])
         if item is None:
             continue
-        out.append(
-            Mismatch(
-                item_id=item.item_id,
-                label=item.label,
-                subject=item.subject or item.label,
-                predicted=entry["predicted"],
-                local_path=item.local_path,
-            )
-        )
-    progress.advance(message="Done")
+        out.append(Prediction(
+            item_id=item.item_id, label=item.label,
+            subject=item.subject or item.label, predicted=entry["predicted"],
+            local_path=item.local_path,
+        ))
     return out

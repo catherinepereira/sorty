@@ -11,12 +11,12 @@ def _progress():
     return Progress(_loop=asyncio.new_event_loop())
 
 
-def test_crossval_maps_flagged_paths_to_mismatches(dataset):
+def test_crossval_maps_flagged_paths_to_predictions(dataset):
     ds, root = dataset
     ds.items[0].subject = "American Robin"
     flagged_item = ds.items[0]
 
-    def fake_crossval(r, items, folds, epochs, img_size):
+    def fake_crossval(r, items, *, folds, epochs, on_progress):
         return [
             {
                 "path": str((r / flagged_item.local_path).resolve()),
@@ -25,7 +25,7 @@ def test_crossval_maps_flagged_paths_to_mismatches(dataset):
             }
         ]
 
-    with mock.patch("prompt2dataset.crossval._crossval", fake_crossval):
+    with mock.patch.object(classify, "p2d_crossval", fake_crossval):
         result = classify.crossval(root, ds, 3, 2, _progress())
 
     assert len(result) == 1
@@ -38,10 +38,10 @@ def test_crossval_maps_flagged_paths_to_mismatches(dataset):
 def test_crossval_drops_paths_not_in_manifest(dataset):
     ds, root = dataset
 
-    def fake_crossval(r, items, folds, epochs, img_size):
+    def fake_crossval(r, items, *, folds, epochs, on_progress):
         return [{"path": "C:/nowhere/ghost.png", "true_label": "x", "predicted": "y"}]
 
-    with mock.patch("prompt2dataset.crossval._crossval", fake_crossval):
+    with mock.patch.object(classify, "p2d_crossval", fake_crossval):
         result = classify.crossval(root, ds, 3, 2, _progress())
 
     assert result == []

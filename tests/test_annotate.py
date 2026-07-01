@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from prompt2dataset.models import ReviewStatus
+from prompt2dataset import ReviewStatus
 from sorty import annotate
 
 

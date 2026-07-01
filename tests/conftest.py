@@ -11,8 +11,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from prompt2dataset.ingest import save_dataset
-from prompt2dataset.models import Dataset, DatasetItem
+from prompt2dataset import Dataset, DatasetItem, save_dataset
 
 
 def _write_png(path: Path, color: tuple[int, int, int]) -> None:

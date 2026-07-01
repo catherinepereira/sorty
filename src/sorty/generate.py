@@ -1,55 +1,56 @@
-"""Generate images into a dataset, reusing prompt2dataset's pipeline.
+"""Generate images into a dataset via prompt2dataset's public API.
 
-resolve_subjects (Ollama) -> fetch_all (sources) -> records to items -> download.
-The download step reuses p2d's SSRF-guarded _download_file so hostile or internal
-URLs are refused the same way the CLI refuses them.
+Subject resolution and the fetch/download/prune pipeline both live in p2d. Sorty adds a
+friendly Ollama-down error and bridges p2d's progress callback to its own Progress.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
-import time
 from pathlib import Path
 
 import httpx
 
-from prompt2dataset.ingest import (
-    DOWNLOAD_RATE_LIMIT,
-    _download_file,
-    _records_to_items,
+from prompt2dataset import (
+    GenerateResult,
     load_dataset,
+    resolve_subjects,
     save_dataset,
+    source_names,
 )
-from prompt2dataset.models import Dataset
-from prompt2dataset.resolver import resolve_subjects
-from prompt2dataset.sources import REGISTRY, fetch_all
+from prompt2dataset import generate as p2d_generate
+from prompt2dataset.progress import Progress as P2DProgress
 
-from sorty.ids import slugify
+from sorty.recyclebin import is_binned
 from sorty.tasks import Progress
 
-
-def source_names() -> list[str]:
-    return list(REGISTRY.keys())
+__all__ = ["source_names", "resolve", "generate", "OllamaUnavailable"]
 
 
 class OllamaUnavailable(RuntimeError):
     """Subject resolution could not reach the local Ollama model."""
 
 
-def resolve(prompt: str) -> list[str]:
+def resolve(
+    prompt: str, count: int | None = None, exclude: list[str] | None = None
+) -> list[str]:
     """Resolve a prompt to subjects, raising a clear error if Ollama can't be reached.
 
-    Only connection and response-shape failures become OllamaUnavailable. Other errors
-    propagate so a genuine bug isn't reported as a down service.
+    count hints how many subjects to return, exclude lists ones already chosen so a
+    follow-up call returns only new ones. Only connection and response-shape failures
+    become OllamaUnavailable. Other errors propagate so a genuine bug isn't reported as
+    a down service.
     """
     try:
-        return resolve_subjects(prompt)
+        subjects = resolve_subjects(prompt, count=count, exclude=exclude)
     except (httpx.HTTPError, json.JSONDecodeError, ValueError) as exc:
         raise OllamaUnavailable(
             "Could not resolve subjects. Is Ollama running "
             f"(ollama pull qwen2.5:3b-instruct)? [{exc!r}]"
         ) from exc
+    if count and count > 0:
+        subjects = subjects[:count]
+    return subjects
 
 
 def generate(
@@ -58,51 +59,20 @@ def generate(
     sources: list[str],
     limit: int,
     progress: Progress,
-) -> dict[str, int]:
-    """Fetch and download images for the given subjects into the dataset at root.
+) -> GenerateResult:
+    """Fetch and download images for the subjects into the dataset at root.
 
-    Returns counts: {"records", "added", "saved", "failed"}. New subjects and sources
-    are merged into the existing manifest; images already on disk are not re-fetched.
+    Delegates to p2d's headless generate, which merges new subjects, downloads, and
+    prunes failed downloads. Binned items are kept through the prune.
     """
-    ds: Dataset = load_dataset(root)
+    ds = load_dataset(root)
 
-    # Fetch only subjects not already in the dataset, matching p2d's _run_add.
-    # A re-run with the same prompt then does no network work
-    new_subjects = [s for s in subjects if s not in ds.subjects]
-    ds.subjects += new_subjects
-    for s in sources:
-        if s not in ds.sources:
-            ds.sources.append(s)
-    for subject in new_subjects:
-        (root / slugify(subject)).mkdir(parents=True, exist_ok=True)
+    def on_progress(p: P2DProgress) -> None:
+        progress.sync(p.total, p.done, p.message)
 
-    if not new_subjects:
-        return {"records": 0, "added": 0, "saved": 0, "failed": 0}
-
-    progress.start(total=len(new_subjects), message="Searching sources")
-    raw_results: dict = {}
-    for subject in new_subjects:
-        partial = asyncio.run(fetch_all([subject], sources, limit))
-        raw_results.update(partial)
-        progress.advance(message=f"Searched {subject}")
-
-    records = sum(
-        len(recs) for src_map in raw_results.values() for recs in src_map.values()
+    result = p2d_generate(
+        ds, root, subjects, sources, limit,
+        on_progress=on_progress, keep_on_prune=is_binned,
     )
-    new_items = _records_to_items(raw_results)
-    added = ds.add_items(new_items)
-
-    pending = [i for i in ds.items if not (root / i.local_path).exists()]
-    progress.start(total=max(len(pending), 1), message="Downloading images")
-    saved = failed = 0
-    for item in pending:
-        dest = root / item.local_path
-        if _download_file(item.source_url, dest):
-            saved += 1
-        else:
-            failed += 1
-        progress.advance(message=f"Saved {saved}/{len(pending)}")
-        time.sleep(DOWNLOAD_RATE_LIMIT)
-
     save_dataset(ds, root)
-    return {"records": records, "added": added, "saved": saved, "failed": failed}
+    return result

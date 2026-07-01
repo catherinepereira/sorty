@@ -31,6 +31,13 @@ class Progress:
         if self.on_update is not None:
             self._loop.call_soon_threadsafe(self.on_update, self)
 
+    def sync(self, total: int, done: int, message: str) -> None:
+        """Set all fields at once and flush, for bridging an external progress source."""
+        self.total = total
+        self.done = done
+        self.message = message
+        self._flush()
+
     def start(self, total: int, message: str = "") -> None:
         self.total = total
         self.done = 0

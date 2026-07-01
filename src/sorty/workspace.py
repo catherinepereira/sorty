@@ -1,7 +1,7 @@
 """The workspace: named datasets living under a single datasets/ folder.
 
 Each dataset is an ordinary prompt2dataset directory (a <name>/ folder with a .p2d/
-manifest inside). Sorty only manages which folders exist and summarizes them; p2d
+manifest inside). Sorty only manages which folders exist and summarizes them. p2d
 owns everything inside.
 """
 
@@ -10,9 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from prompt2dataset.ingest import load_dataset, save_dataset
-from prompt2dataset.models import Dataset
-from prompt2dataset.utils import meta_dir
+from prompt2dataset import Dataset, load_dataset, meta_dir, save_dataset
 
 from sorty.ids import slugify
 from sorty.recyclebin import is_binned

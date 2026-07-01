@@ -11,7 +11,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from prompt2dataset.models import Dataset, DatasetItem, ReviewStatus
+from prompt2dataset import Dataset, DatasetItem, ReviewStatus
 
 
 def _bin_dir(root: Path) -> Path:

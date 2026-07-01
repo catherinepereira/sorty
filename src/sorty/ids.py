@@ -1,10 +1,8 @@
-"""Slugify labels and names the same way prompt2dataset does, so Sorty's folder
-layout matches what p2d writes and reads."""
+"""Slugify labels and names via prompt2dataset, so Sorty's folder layout matches what
+p2d writes and reads."""
 
 from __future__ import annotations
 
-from prompt2dataset.ingest import _slug
+from prompt2dataset import slugify
 
-
-def slugify(text: str) -> str:
-    return _slug(text)
+__all__ = ["slugify"]

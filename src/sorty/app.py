@@ -12,9 +12,15 @@ from sorty.state import media_url, register_media, workspace_root
 from sorty.tasks import Progress, run_task
 from sorty.theme import PALETTE, STATUS_COLORS, apply_base_style, card, mascot
 
-from prompt2dataset.dedup import _find_exact_duplicates, _find_outliers, _apply
-from prompt2dataset.ingest import load_dataset, save_dataset
-from prompt2dataset.models import Dataset, ReviewStatus
+from prompt2dataset import (
+    Dataset,
+    ReviewStatus,
+    apply_flags,
+    find_exact_duplicates,
+    find_outliers,
+    load_dataset,
+    save_dataset,
+)
 
 # Images shown per grid page. Caps the element count and websocket payload NiceGUI
 # builds per render, which otherwise grows with the whole dataset
@@ -117,11 +123,67 @@ def _resolve_root(name: str) -> Path | None:
 
 
 def _generate_dialog(root: Path, on_done) -> None:
-    with ui.dialog() as dialog, card().classes("w-96"):
+    # The working set of subjects to fetch, built and edited before any images download.
+    # Generate from a prompt, type them in, or generate more that aren't already here
+    subjects: list[str] = []
+
+    def add_subject(name: str) -> bool:
+        name = name.strip()
+        if not name or any(name.lower() == s.lower() for s in subjects):
+            return False
+        subjects.append(name)
+        return True
+
+    with ui.dialog() as dialog, card().classes("w-[30rem]"):
         ui.label("Generate images").classes("text-lg font-semibold")
+
         prompt = ui.input(
             "Prompt", placeholder="bird species native to the Pacific Northwest"
         ).classes("w-full")
+        with ui.row().classes("w-full items-end gap-2"):
+            count = ui.number("Classes", value=8, min=1, max=100).classes("w-28")
+            count.tooltip("How many subjects to aim for. Blank lets the model decide")
+            gen_btn = ui.button("Generate subjects", icon="auto_awesome").props(
+                "unelevated"
+            )
+            more_btn = ui.button("Generate more", icon="add").props("flat")
+
+        @ui.refreshable
+        def subject_list() -> None:
+            if not subjects:
+                ui.label("No subjects yet. Generate from a prompt or add your own.").style(
+                    f'color: {PALETTE["muted"]}'
+                )
+                return
+            ui.label(f"{len(subjects)} subjects to fetch").style(
+                f'color: {PALETTE["muted"]}'
+            )
+            with ui.row().classes("w-full gap-1 flex-wrap max-h-40 overflow-auto"):
+                for s in list(subjects):
+                    ui.chip(
+                        s, removable=True, icon="label", color=PALETTE["primary_soft"]
+                    ).on(
+                        "remove", lambda s=s: (subjects.remove(s), subject_list.refresh())
+                    )
+
+        with ui.row().classes("w-full items-end gap-2"):
+            manual = ui.input("Add a subject", placeholder="e.g. Blue Jay").classes(
+                "flex-grow"
+            )
+
+            def add_manual() -> None:
+                if add_subject(manual.value or ""):
+                    manual.value = ""
+                    subject_list.refresh()
+                else:
+                    ui.notify("Empty or already in the list.", color="warning")
+
+            manual.on("keydown.enter", add_manual)
+            ui.button(icon="add", on_click=add_manual).props("flat round")
+
+        subject_list()
+        ui.separator()
+
         sources = (
             ui.select(
                 generate.source_names(),
@@ -137,50 +199,68 @@ def _generate_dialog(root: Path, on_done) -> None:
         )
         panel = ui.column().classes("w-full")
 
-        async def go() -> None:
-            if not prompt.value or not sources.value:
-                ui.notify("Enter a prompt and pick a source.", color="warning")
+        def _target_count() -> int | None:
+            return int(count.value) if count.value else None
+
+        async def do_resolve(additive: bool) -> None:
+            if not prompt.value:
+                ui.notify("Enter a prompt first.", color="warning")
+                return
+            gen_btn.disable()
+            more_btn.disable()
+            try:
+                exclude = list(subjects) if additive else None
+                try:
+                    found = await run_task(
+                        lambda _p: generate.resolve(
+                            prompt.value, count=_target_count(), exclude=exclude
+                        )
+                    )
+                except generate.OllamaUnavailable as exc:
+                    ui.notify(str(exc), color="negative", multi_line=True)
+                    return
+                if not additive:
+                    subjects.clear()
+                added = sum(add_subject(s) for s in found)
+                if added == 0:
+                    ui.notify("No new subjects came back.", color="info")
+                subject_list.refresh()
+            finally:
+                gen_btn.enable()
+                more_btn.enable()
+
+        gen_btn.on_click(lambda: do_resolve(additive=False))
+        more_btn.on_click(lambda: do_resolve(additive=True))
+
+        async def fetch() -> None:
+            if not subjects:
+                ui.notify("Add or generate at least one subject.", color="warning")
+                return
+            if not sources.value:
+                ui.notify("Pick at least one source.", color="warning")
                 return
             panel.clear()
             with panel:
                 mascot("working", 48)
-                status = ui.label("Resolving subjects...").style(
-                    f'color: {PALETTE["muted"]}'
-                )
+                status = ui.label("Fetching...").style(f'color: {PALETTE["muted"]}')
                 bar = ui.linear_progress(value=0, show_value=False).classes("w-full")
 
             def on_update(p: Progress) -> None:
                 status.text = p.message
                 bar.value = p.done / p.total if p.total else 0
 
-            try:
-                subjects = await run_task(lambda _p: generate.resolve(prompt.value))
-            except generate.OllamaUnavailable as exc:
-                ui.notify(str(exc), color="negative", multi_line=True)
-                panel.clear()
-                return
-
-            if not subjects:
-                ui.notify(
-                    "The prompt resolved to no subjects. Try describing it differently.",
-                    color="warning",
-                    multi_line=True,
-                )
-                panel.clear()
-                return
-
             result = await run_task(
                 lambda p: generate.generate(
-                    root, subjects, list(sources.value), int(limit.value), p
+                    root, list(subjects), list(sources.value), int(limit.value), p
                 ),
                 on_update=on_update,
             )
-            if result["saved"] == 0 and result["added"] == 0:
-                ui.notify("Nothing new to fetch for this prompt.", color="info")
+            if result.saved == 0 and result.added == 0:
+                ui.notify("Nothing new to fetch, those subjects are already here.", color="info")
             else:
                 ui.notify(
-                    f"Saved {result['saved']} images"
-                    + (f", {result['failed']} failed" if result["failed"] else ""),
+                    f"Saved {result.saved} images"
+                    + (f", {result.failed} failed" if result.failed else ""),
                     color="positive",
                 )
             dialog.close()
@@ -188,7 +268,7 @@ def _generate_dialog(root: Path, on_done) -> None:
 
         with ui.row().classes("w-full justify-end gap-2"):
             ui.button("Cancel", on_click=dialog.close).props("flat")
-            ui.button("Generate", on_click=go).props("unelevated")
+            ui.button("Fetch images", icon="download", on_click=fetch).props("unelevated")
     dialog.open()
 
 
@@ -267,7 +347,11 @@ def dataset_page(name: str) -> None:
     @ui.refreshable
     def grid() -> None:
         ds = load_dataset(root)
-        items = [i for i in ds.items if not recyclebin.is_binned(i)]
+        items = [
+            i
+            for i in ds.items
+            if not recyclebin.is_binned(i) and (root / i.local_path).exists()
+        ]
         if not items:
             with card().classes("w-full items-center p-8"):
                 mascot("idle", 64)
@@ -343,10 +427,10 @@ def dataset_page(name: str) -> None:
                 ]
                 p.start(total=1, message=f"Scanning for {kind}...")
                 if kind == "duplicates":
-                    flagged = _find_exact_duplicates(candidates, root)
+                    flagged = find_exact_duplicates(candidates, root)
                 else:
-                    flagged = _find_outliers(candidates, root, 0.25)
-                _apply(flagged, ds, root, delete=False)
+                    flagged = find_outliers(candidates, root, 0.25)
+                apply_flags(flagged, ds, root, delete=False)
                 save_dataset(ds, root)
                 p.advance(message="Done")
                 return len(flagged)

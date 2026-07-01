@@ -3,59 +3,75 @@ from __future__ import annotations
 import asyncio
 from unittest import mock
 
-from prompt2dataset.ingest import load_dataset
+from prompt2dataset import GenerateResult, load_dataset
 from sorty import generate
 from sorty.tasks import Progress
 
 
-def _fake_fetch_factory(counter: list[str]):
-    async def fake_fetch_all(subjects, sources, limit):
-        counter.extend(subjects)
-        return {
-            s: {sources[0]: [{"source": sources[0], "url": f"https://example.test/{s}.jpg"}]}
-            for s in subjects
-        }
-
-    return fake_fetch_all
+def test_resolve_caps_to_count():
+    with mock.patch.object(
+        generate, "resolve_subjects", return_value=["a", "b", "c", "d", "e"]
+    ):
+        assert generate.resolve("x", count=3) == ["a", "b", "c"]
 
 
-def _fake_download(url, dest):
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(b"x")
-    return True
+def test_resolve_passes_count_and_exclude_through():
+    with mock.patch.object(generate, "resolve_subjects", return_value=["new"]) as m:
+        generate.resolve("x", count=4, exclude=["old"])
+        _, kwargs = m.call_args
+        assert kwargs["count"] == 4 and kwargs["exclude"] == ["old"]
+
+
+def test_resolve_maps_ollama_failure():
+    import httpx
+
+    with mock.patch.object(
+        generate, "resolve_subjects", side_effect=httpx.ConnectError("refused")
+    ):
+        try:
+            generate.resolve("x")
+            assert False, "expected OllamaUnavailable"
+        except generate.OllamaUnavailable:
+            pass
 
 
 def _progress():
     return Progress(_loop=asyncio.new_event_loop())
 
 
-def test_generate_downloads_new_subjects(dataset):
+def test_generate_delegates_to_p2d(dataset):
+    """Sorty's generate is a thin wrapper: it loads the dataset, calls p2d.generate with
+    the recycle-bin keep predicate, and returns the result."""
     ds, root = dataset
-    fetched: list[str] = []
-    with mock.patch.object(generate, "fetch_all", _fake_fetch_factory(fetched)), mock.patch.object(
-        generate, "_download_file", _fake_download
-    ):
-        result = generate.generate(root, ["otter", "seal"], ["duckduckgo"], 5, _progress())
+    sentinel = GenerateResult(records=4, added=4, saved=4, failed=0, dropped=0)
 
-    assert result["saved"] == 2
-    assert sorted(fetched) == ["otter", "seal"]
-    reloaded = load_dataset(root)
-    assert "otter" in reloaded.subjects and "seal" in reloaded.subjects
+    with mock.patch.object(generate, "p2d_generate", return_value=sentinel) as m:
+        result = generate.generate(root, ["otter"], ["duckduckgo"], 5, _progress())
+
+    assert result is sentinel
+    (args, kwargs) = m.call_args
+    assert args[2] == ["otter"] and args[3] == ["duckduckgo"] and args[4] == 5
+    assert kwargs["keep_on_prune"] is generate.is_binned
 
 
-def test_generate_rerun_skips_known_subjects(dataset):
+def test_generate_end_to_end_through_p2d(dataset):
+    """With p2d's fetch and download mocked, the whole path produces a saved manifest."""
     ds, root = dataset
-    fetched: list[str] = []
-    with mock.patch.object(generate, "fetch_all", _fake_fetch_factory(fetched)), mock.patch.object(
-        generate, "_download_file", _fake_download
-    ):
-        generate.generate(root, ["otter"], ["duckduckgo"], 5, _progress())
-        fetched.clear()
-        # robin and sparrow already exist in the fixture; otter now exists too
-        result = generate.generate(
-            root, ["robin", "sparrow", "otter"], ["duckduckgo"], 5, _progress()
-        )
 
-    # nothing new -> no fetch calls, zero counts
-    assert fetched == []
-    assert result == {"records": 0, "added": 0, "saved": 0, "failed": 0}
+    async def fake_fetch(subjects, sources, limit):
+        return {s: {sources[0]: [{"source": sources[0], "url": f"https://x/{s}.jpg"}]} for s in subjects}
+
+    def ok_download(url, dest):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"x")
+        return True
+
+    from prompt2dataset import pipeline
+
+    with mock.patch.object(pipeline, "fetch_all", fake_fetch), mock.patch.object(
+        pipeline, "download_file", ok_download
+    ):
+        result = generate.generate(root, ["otter"], ["duckduckgo"], 3, _progress())
+
+    assert result.saved == 1
+    assert "otter" in load_dataset(root).subjects
