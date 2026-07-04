@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { useDataset } from "../stores/dataset";
 import { useJob } from "../hooks/useJob";
@@ -8,29 +8,49 @@ import { Header } from "../components/Header";
 import { ImageCard } from "../components/ImageCard";
 import { AnnotateDialog } from "../components/AnnotateDialog";
 import { GenerateDialog } from "../components/GenerateDialog";
+import { AddImagesDialog } from "../components/AddImagesDialog";
+import { AddClassesDialog } from "../components/AddClassesDialog";
+import { DeleteSourceDialog } from "../components/DeleteSourceDialog";
+import { RenameDialog } from "../components/RenameDialog";
+import { SummaryPanel } from "../components/SummaryPanel";
 import { JobProgress } from "../components/JobProgress";
 import { MismatchPanel } from "../components/MismatchPanel";
+import { Dropdown, DropdownItem } from "../components/Dropdown";
 import type { Item, JobState, Prediction } from "../types";
+
+type DialogName =
+  | "generate"
+  | "addImages"
+  | "addClasses"
+  | "deleteSource"
+  | "rename"
+  | "summary"
+  | null;
 
 export function DatasetPage() {
   const { name = "" } = useParams();
+  const nav = useNavigate();
   const {
     detail,
     loading,
     selected,
+    selectMode,
     load,
     refresh,
     toggle,
+    setSelected,
     selectAll,
     clearSelection,
+    setSelectMode,
   } = useDataset();
   const { ask, element: confirmEl } = useConfirm();
 
   const [openItem, setOpenItem] = useState<Item | null>(null);
-  const [genOpen, setGenOpen] = useState(false);
+  const [dialog, setDialog] = useState<DialogName>(null);
   const [mismatches, setMismatches] = useState<Prediction[] | null>(null);
   const [torchOk, setTorchOk] = useState(true);
   const [banner, setBanner] = useState("");
+  const [renameError, setRenameError] = useState("");
 
   const onJobDone = (job: JobState) => {
     refresh();
@@ -46,17 +66,13 @@ export function DatasetPage() {
   const runJob = async (fn: () => Promise<{ job_id: string }>) => {
     setBanner("");
     setMismatches(null);
+    setDialog(null);
     clear();
     try {
       start((await fn()).job_id);
     } catch (e) {
       setBanner(e instanceof ApiError ? e.message : "Could not start the job");
     }
-  };
-
-  const generate = (body: Parameters<typeof api.generate>[1]) => {
-    setGenOpen(false);
-    runJob(() => api.generate(name, body));
   };
 
   const runInfer = async () => {
@@ -79,6 +95,40 @@ export function DatasetPage() {
     }
   };
 
+  const rename = async (newName: string) => {
+    setRenameError("");
+    try {
+      const { name: slug } = await api.renameDataset(name, newName);
+      setDialog(null);
+      nav(`/d/${slug}`);
+    } catch (e) {
+      setRenameError(e instanceof ApiError ? e.message : "Could not rename");
+    }
+  };
+
+  const refreshFromDisk = async () => {
+    setBanner("");
+    try {
+      const { added, pruned } = await api.refresh(name);
+      setBanner(`Refreshed: ${added} added, ${pruned} pruned.`);
+      refresh();
+    } catch (e) {
+      setBanner(e instanceof ApiError ? e.message : "Could not refresh");
+    }
+  };
+
+  const removeDataset = async () => {
+    const ok = await ask({
+      title: "Delete dataset",
+      message: `Delete "${name}" and all its images? It goes to your computer's recycle bin.`,
+      confirmLabel: "Delete dataset",
+      danger: true,
+    });
+    if (!ok) return;
+    await api.deleteDataset(name);
+    nav("/");
+  };
+
   const deleteSelected = async () => {
     const ids = [...selected];
     if (!ids.length) return;
@@ -94,11 +144,14 @@ export function DatasetPage() {
     refresh();
   };
 
-  const deleteOne = async (id: string) => {
-    await api.del(name, [id]);
-    setOpenItem(null);
-    refresh();
-  };
+  const deleteOne = useCallback(
+    async (id: string) => {
+      await api.del(name, [id]);
+      setOpenItem(null);
+      refresh();
+    },
+    [name, refresh],
+  );
 
   if (loading || !detail)
     return <Header subtitle="Loading" mood="working" backTo="/" />;
@@ -108,20 +161,87 @@ export function DatasetPage() {
   return (
     <>
       <Header
-        subtitle={`${s.total} images, ${s.valid} valid, ${s.pending} pending`}
+        subtitle={`${s.total} images, ${s.pending} pending, ${s.valid} valid`}
         backTo="/"
         actions={
-          <Link
-            to={`/d/${name}/bin`}
-            className="border-border text-muted hover:bg-card rounded-lg border px-4 py-2"
-          >
-            Recycle bin
-          </Link>
+          <div className="flex gap-2">
+            <Link
+              to={`/d/${name}/bin`}
+              className="border-border text-muted hover:bg-card rounded-lg border px-4 py-2"
+            >
+              Recycle bin
+            </Link>
+            <Dropdown label="Actions">
+              {(close) => (
+                <>
+                  <DropdownItem
+                    onClick={() => {
+                      setDialog("addClasses");
+                      close();
+                    }}
+                  >
+                    Add or edit classes
+                  </DropdownItem>
+                  <DropdownItem
+                    onClick={() => {
+                      setDialog("addImages");
+                      close();
+                    }}
+                  >
+                    Add more images
+                  </DropdownItem>
+                  <DropdownItem
+                    onClick={() => {
+                      setDialog("summary");
+                      close();
+                    }}
+                  >
+                    View summary
+                  </DropdownItem>
+                  <DropdownItem
+                    onClick={() => {
+                      refreshFromDisk();
+                      close();
+                    }}
+                  >
+                    Refresh from disk
+                  </DropdownItem>
+                  <DropdownItem
+                    onClick={() => {
+                      setDialog("deleteSource");
+                      close();
+                    }}
+                  >
+                    Delete by source
+                  </DropdownItem>
+                  <DropdownItem
+                    onClick={() => {
+                      setDialog("rename");
+                      close();
+                    }}
+                  >
+                    Rename dataset
+                  </DropdownItem>
+                  <DropdownItem
+                    danger
+                    onClick={() => {
+                      removeDataset();
+                      close();
+                    }}
+                  >
+                    Delete dataset
+                  </DropdownItem>
+                </>
+              )}
+            </Dropdown>
+          </div>
         }
       />
 
       <div className="mb-4 flex flex-wrap gap-2">
-        <ToolbarButton onClick={() => setGenOpen(true)}>Generate</ToolbarButton>
+        <ToolbarButton onClick={() => setDialog("generate")}>
+          Generate
+        </ToolbarButton>
         <ToolbarButton onClick={() => runJob(() => api.dedup(name, "exact"))}>
           Find duplicates
         </ToolbarButton>
@@ -140,6 +260,14 @@ export function DatasetPage() {
         <ToolbarButton disabled={!torchOk} onClick={runInfer}>
           Run classifier
         </ToolbarButton>
+        <button
+          onClick={() => setSelectMode(!selectMode)}
+          className={`ml-auto rounded-lg px-4 py-2 font-medium ${
+            selectMode ? "bg-primary text-white" : "bg-card shadow-sm"
+          }`}
+        >
+          {selectMode ? "Done selecting" : "Select"}
+        </button>
       </div>
 
       {!torchOk && (
@@ -196,20 +324,18 @@ export function DatasetPage() {
 
       {detail.items.length === 0 ? (
         <p className="text-muted mt-16 text-center">
-          No images yet. Generate some to get started.
+          No images yet. Add classes, then generate images.
         </p>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-          {detail.items.map((item) => (
-            <ImageCard
-              key={item.id}
-              item={item}
-              selected={selected.has(item.id)}
-              onToggle={() => toggle(item.id)}
-              onOpen={() => setOpenItem(item)}
-            />
-          ))}
-        </div>
+        <ImageGrid
+          items={detail.items}
+          selected={selected}
+          selectMode={selectMode}
+          onToggle={toggle}
+          onSetSelected={setSelected}
+          onOpen={setOpenItem}
+          onDelete={deleteOne}
+        />
       )}
 
       <AnnotateDialog
@@ -219,12 +345,107 @@ export function DatasetPage() {
         onDelete={deleteOne}
       />
       <GenerateDialog
-        open={genOpen}
-        onClose={() => setGenOpen(false)}
-        onStart={generate}
+        open={dialog === "generate"}
+        onClose={() => setDialog(null)}
+        onStart={(body) => runJob(() => api.generate(name, body))}
       />
+      <AddImagesDialog
+        open={dialog === "addImages"}
+        classes={detail.subjects}
+        onClose={() => setDialog(null)}
+        onStart={(body) => runJob(() => api.addImages(name, body))}
+      />
+      <AddClassesDialog
+        open={dialog === "addClasses"}
+        datasetName={name}
+        current={detail.subjects}
+        onClose={() => setDialog(null)}
+        onSaved={() => {
+          setDialog(null);
+          refresh();
+        }}
+      />
+      <DeleteSourceDialog
+        open={dialog === "deleteSource"}
+        datasetName={name}
+        onClose={() => setDialog(null)}
+        onDeleted={() => {
+          setDialog(null);
+          refresh();
+        }}
+      />
+      <RenameDialog
+        open={dialog === "rename"}
+        current={name}
+        error={renameError}
+        onClose={() => {
+          setDialog(null);
+          setRenameError("");
+        }}
+        onRename={rename}
+      />
+      {dialog === "summary" && (
+        <SummaryPanel datasetName={name} onClose={() => setDialog(null)} />
+      )}
       {confirmEl}
     </>
+  );
+}
+
+function ImageGrid({
+  items,
+  selected,
+  selectMode,
+  onToggle,
+  onSetSelected,
+  onOpen,
+  onDelete,
+}: {
+  items: Item[];
+  selected: Set<string>;
+  selectMode: boolean;
+  onToggle: (id: string) => void;
+  onSetSelected: (id: string, on: boolean) => void;
+  onOpen: (item: Item) => void;
+  onDelete: (id: string) => void;
+}) {
+  // drag across cards to paint selection, only in select mode
+  const dragging = useRef(false);
+  const dragValue = useRef(true);
+
+  const endDrag = () => (dragging.current = false);
+  useEffect(() => {
+    window.addEventListener("mouseup", endDrag);
+    return () => window.removeEventListener("mouseup", endDrag);
+  }, []);
+
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+      {items.map((item) => (
+        <div
+          key={item.id}
+          onMouseDown={() => {
+            if (!selectMode) return;
+            dragging.current = true;
+            dragValue.current = !selected.has(item.id);
+            onSetSelected(item.id, dragValue.current);
+          }}
+          onMouseEnter={() => {
+            if (selectMode && dragging.current)
+              onSetSelected(item.id, dragValue.current);
+          }}
+        >
+          <ImageCard
+            item={item}
+            selected={selected.has(item.id)}
+            selectMode={selectMode}
+            onToggle={() => onToggle(item.id)}
+            onOpen={() => onOpen(item)}
+            onDelete={() => onDelete(item.id)}
+          />
+        </div>
+      ))}
+    </div>
   );
 }
 

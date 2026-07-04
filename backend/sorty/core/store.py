@@ -42,9 +42,8 @@ def _write_labels(ds: Dataset, md: Path) -> None:
     writer = csv.writer(buf, lineterminator="\n")
     writer.writerow(["filename", "label", "subject", "source"])
     for item in ds.items:
-        source = item.meta.get("source", "unknown")
         subject = item.subject or item.label
-        writer.writerow([item.local_path, _defang(item.label), _defang(subject), _defang(source)])
+        writer.writerow([item.local_path, _defang(item.label), _defang(subject), _defang(item.source)])
     (md / "labels.csv").write_text(buf.getvalue(), encoding="utf-8")
 
 

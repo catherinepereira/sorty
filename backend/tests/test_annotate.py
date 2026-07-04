@@ -17,9 +17,9 @@ def test_set_note_add_and_clear(dataset):
     ds, root = dataset
     item = ds.items[0]
     annotate.set_note(ds, item.item_id, "  blurry  ")
-    assert item.meta["note"] == "blurry"
+    assert item.note == "blurry"
     annotate.set_note(ds, item.item_id, "   ")
-    assert "note" not in item.meta
+    assert item.note == ""
 
 
 def test_relabel_moves_file_and_updates_manifest(dataset):

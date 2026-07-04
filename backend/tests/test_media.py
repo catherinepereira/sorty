@@ -41,8 +41,8 @@ def test_serves_nested_subdir_image(served):
 # battery covers POSIX and Windows traversal, absolute/drive/UNC paths, the base dir
 # itself, and non-image files
 REJECTED = [
-    "smoke/.p2d/manifest.json",     # non-image file inside a dataset
-    "smoke/.p2d/labels.csv",        # ditto
+    "smoke/.sorty/manifest.json",     # non-image file inside a dataset
+    "smoke/.sorty/labels.csv",        # ditto
     "../pyproject.toml",            # POSIX traversal out of datasets/
     "..\\..\\Windows\\win.ini",     # Windows backslash traversal
     "smoke/robin/../../../README.md",  # traversal back through a valid prefix

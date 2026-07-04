@@ -1,5 +1,4 @@
-"""Slugify labels and names via prompt2dataset, so Sorty's folder layout matches what
-p2d writes and reads."""
+"""Re-export the core slugifier so the folder layout matches what the store writes and reads."""
 
 from __future__ import annotations
 

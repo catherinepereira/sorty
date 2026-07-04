@@ -1,7 +1,7 @@
-"""Shared fixtures: a temporary prompt2dataset dataset with generated images.
+"""Shared fixtures: a temporary dataset with generated images.
 
 No network and no torch. Images are tiny solid-color PNGs written with PIL, and the
-manifest is built straight from the p2d models.
+manifest is built straight from the core models.
 """
 
 from __future__ import annotations
@@ -25,9 +25,9 @@ def _item(label: str, n: int, color: tuple[int, int, int]) -> DatasetItem:
     return DatasetItem(
         item_id=item_id,
         label=label,
+        source="test",
         source_url=url,
         local_path=str(Path(label) / f"{label}_{item_id}.png"),
-        meta={"source": "test"},
     )
 
 

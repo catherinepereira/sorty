@@ -21,13 +21,25 @@ export function AnnotateDialog({
   const [subject, setSubject] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const [dims, setDims] = useState<{
+    width: number | null;
+    height: number | null;
+    bytes: number | null;
+  } | null>(null);
 
   useEffect(() => {
     if (item) {
       setSubject(item.subject);
       setNote(item.note);
+      setDims(null);
+      api
+        .getItem(datasetName, item.id)
+        .then((d) =>
+          setDims({ width: d.width, height: d.height, bytes: d.bytes }),
+        )
+        .catch(() => {});
     }
-  }, [item]);
+  }, [item, datasetName]);
 
   if (!item) return null;
 
@@ -55,14 +67,17 @@ export function AnnotateDialog({
   return (
     <Modal open onClose={onClose} width="max-w-2xl">
       <div className="flex gap-5">
-        <img
-          src={item.url}
-          alt={item.subject}
-          className="h-48 w-48 rounded-lg object-cover"
-        />
+        <div className="w-48 shrink-0">
+          <img
+            src={item.url}
+            alt={item.subject}
+            className="h-48 w-48 rounded-lg object-cover"
+          />
+          <ItemDetail item={item} dims={dims} />
+        </div>
         <div className="flex-1 space-y-4">
           <div>
-            <label className="text-sm font-medium">Subject</label>
+            <label className="text-sm font-medium">Class</label>
             <input
               className="border-border focus:border-primary mt-1 w-full rounded-lg border px-3 py-2 outline-none"
               value={subject}
@@ -122,5 +137,71 @@ export function AnnotateDialog({
         </div>
       </div>
     </Modal>
+  );
+}
+
+function humanBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ["KB", "MB", "GB"];
+  let value = n / 1024;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024;
+    i++;
+  }
+  return `${value.toFixed(1)} ${units[i]}`;
+}
+
+function ItemDetail({
+  item,
+  dims,
+}: {
+  item: Item;
+  dims: {
+    width: number | null;
+    height: number | null;
+    bytes: number | null;
+  } | null;
+}) {
+  return (
+    <dl className="mt-3 space-y-1 text-xs">
+      <Row label="Source" value={item.source} />
+      {item.source_url && (
+        <div>
+          <dt className="text-muted">Source URL</dt>
+          <dd className="truncate">
+            <a
+              href={item.source_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary hover:underline"
+              title={item.source_url}
+            >
+              {item.source_url}
+            </a>
+          </dd>
+        </div>
+      )}
+      {item.title && <Row label="Title" value={item.title} />}
+      <Row label="Folder" value={item.directory} />
+      <Row label="File" value={item.filename} />
+      {dims && dims.width && (
+        <Row label="Size" value={`${dims.width}×${dims.height}`} />
+      )}
+      {dims && dims.bytes != null && (
+        <Row label="On disk" value={humanBytes(dims.bytes)} />
+      )}
+    </dl>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-2">
+      <dt className="text-muted">{label}</dt>
+      <dd className="truncate" title={value}>
+        {value}
+      </dd>
+    </div>
   );
 }

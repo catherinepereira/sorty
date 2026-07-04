@@ -1,17 +1,26 @@
+import { memo } from "react";
 import type { Item } from "../types";
 import { StatusChip } from "./StatusChip";
 
-export function ImageCard({
+// memoized so a drag-select that flips one card's selection re-renders only that card,
+// not the whole grid
+export const ImageCard = memo(function ImageCard({
   item,
   selected,
+  selectMode,
   onToggle,
   onOpen,
+  onDelete,
 }: {
   item: Item;
   selected: boolean;
-  onToggle: () => void;
-  onOpen: () => void;
+  selectMode: boolean;
+  onToggle: (id: string) => void;
+  onOpen: (item: Item) => void;
+  onDelete: (id: string) => void;
 }) {
+  const clickCard = () => (selectMode ? onToggle(item.id) : onOpen(item));
+
   return (
     <div
       className={`group bg-card relative overflow-hidden rounded-xl border transition ${
@@ -21,11 +30,23 @@ export function ImageCard({
       <input
         type="checkbox"
         checked={selected}
-        onChange={onToggle}
-        className="accent-primary absolute top-2 left-2 z-10 h-5 w-5 cursor-pointer"
+        onChange={() => onToggle(item.id)}
+        onClick={(e) => e.stopPropagation()}
+        className="accent-primary absolute top-2 left-2 z-[1] h-5 w-5 cursor-pointer"
         aria-label={`Select ${item.subject}`}
       />
-      <button className="block w-full" onClick={onOpen}>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete(item.id);
+        }}
+        className="bg-bad/90 absolute top-2 right-2 z-[1] flex h-6 w-6 items-center justify-center rounded-full text-sm text-white opacity-0 transition group-hover:opacity-100"
+        aria-label={`Delete ${item.subject} to bin`}
+        title="Delete to bin"
+      >
+        ×
+      </button>
+      <button className="block w-full" onClick={clickCard}>
         <img
           src={item.url}
           alt={item.subject}
@@ -46,4 +67,4 @@ export function ImageCard({
       )}
     </div>
   );
-}
+});

@@ -6,12 +6,15 @@ interface DatasetStore {
   detail: DatasetDetail | null;
   loading: boolean;
   selected: Set<string>;
+  selectMode: boolean;
 
   load: (name: string) => Promise<void>;
   refresh: () => Promise<void>;
   toggle: (id: string) => void;
+  setSelected: (id: string, on: boolean) => void;
   selectAll: () => void;
   clearSelection: () => void;
+  setSelectMode: (on: boolean) => void;
   replaceItem: (item: Item) => void;
 }
 
@@ -19,9 +22,15 @@ export const useDataset = create<DatasetStore>((set, get) => ({
   detail: null,
   loading: false,
   selected: new Set(),
+  selectMode: false,
 
   load: async (name) => {
-    set({ loading: true, detail: null, selected: new Set() });
+    set({
+      loading: true,
+      detail: null,
+      selected: new Set(),
+      selectMode: false,
+    });
     const detail = await api.getDataset(name);
     set({ detail, loading: false });
   },
@@ -42,12 +51,22 @@ export const useDataset = create<DatasetStore>((set, get) => ({
     set({ selected });
   },
 
+  setSelected: (id, on) => {
+    const selected = new Set(get().selected);
+    if (on) selected.add(id);
+    else selected.delete(id);
+    set({ selected });
+  },
+
   selectAll: () => {
     const items = get().detail?.items ?? [];
     set({ selected: new Set(items.map((i) => i.id)) });
   },
 
   clearSelection: () => set({ selected: new Set() }),
+
+  setSelectMode: (on) =>
+    set({ selectMode: on, selected: on ? get().selected : new Set() }),
 
   replaceItem: (item) => {
     const detail = get().detail;

@@ -90,7 +90,6 @@ export function Mascot({
       <rect x="12" y="14" width="40" height="34" rx="12" fill={PRIMARY} />
       <rect x="17" y="19" width="30" height="20" rx="9" fill="#ffffff" />
       <Eyes mood={mood} />
-      <rect x="26" y="48" width="12" height="8" rx="3" fill={PRIMARY} />
       <rect x="8" y="26" width="4" height="12" rx="2" fill={PRIMARY} />
       <rect x="52" y="26" width="4" height="12" rx="2" fill={PRIMARY} />
     </svg>

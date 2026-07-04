@@ -25,7 +25,7 @@ def test_crossval_maps_flagged_paths_to_predictions(dataset):
             }
         ]
 
-    with mock.patch.object(classify, "p2d_crossval", fake_crossval):
+    with mock.patch.object(classify, "core_crossval", fake_crossval):
         result = classify.crossval(root, ds, 3, 2, _progress())
 
     assert len(result) == 1
@@ -41,7 +41,7 @@ def test_crossval_drops_paths_not_in_manifest(dataset):
     def fake_crossval(r, items, *, folds, epochs, on_progress):
         return [{"path": "C:/nowhere/ghost.png", "true_label": "x", "predicted": "y"}]
 
-    with mock.patch.object(classify, "p2d_crossval", fake_crossval):
+    with mock.patch.object(classify, "core_crossval", fake_crossval):
         result = classify.crossval(root, ds, 3, 2, _progress())
 
     assert result == []

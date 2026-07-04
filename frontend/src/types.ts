@@ -8,6 +8,12 @@ export interface Item {
   note: string;
   url: string;
   binned: boolean;
+  source: string;
+  source_url: string;
+  title: string;
+  local_path: string;
+  directory: string;
+  filename: string;
 }
 
 export interface DatasetSummary {
@@ -53,4 +59,21 @@ export interface GenerateResult {
   saved: number;
   failed: number;
   dropped: number;
+}
+
+export interface DatasetSummaryStats {
+  total: number;
+  subjects: number;
+  per_class: { name: string; count: number }[];
+  per_source: { name: string; count: number }[];
+  bytes_total: number;
+  image_sizes: {
+    measured: number;
+    min_width: number;
+    max_width: number;
+    min_height: number;
+    max_height: number;
+    mean_width: number;
+    mean_height: number;
+  } | null;
 }

@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { api, ApiError } from "../api";
+import { Link, useNavigate } from "react-router-dom";
+import { api } from "../api";
 import type { DatasetSummary } from "../types";
 import { Header } from "../components/Header";
 import { NewDatasetDialog } from "../components/NewDatasetDialog";
 
 export function Home() {
+  const nav = useNavigate();
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [error, setError] = useState("");
 
   const refresh = () =>
     api
@@ -19,17 +19,6 @@ export function Home() {
   useEffect(() => {
     refresh();
   }, []);
-
-  const create = async (name: string, prompt: string) => {
-    try {
-      await api.createDataset(name, prompt);
-      setDialogOpen(false);
-      setError("");
-      refresh();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not create dataset");
-    }
-  };
 
   return (
     <>
@@ -59,12 +48,11 @@ export function Home() {
 
       <NewDatasetDialog
         open={dialogOpen}
-        error={error}
-        onClose={() => {
+        onClose={() => setDialogOpen(false)}
+        onDone={(name) => {
           setDialogOpen(false);
-          setError("");
+          nav(`/d/${name}`);
         }}
-        onCreate={create}
       />
     </>
   );
@@ -91,8 +79,9 @@ function DatasetCard({ d }: { d: DatasetSummary }) {
       <div className="p-4">
         <h2 className="font-semibold">{d.name}</h2>
         <p className="text-muted mt-1 text-sm">
-          {d.total} images, {d.subjects} subjects
+          {d.total} images, {d.pending} pending, {d.valid} valid
         </p>
+        <p className="text-muted text-xs">{d.subjects} classes</p>
       </div>
     </Link>
   );

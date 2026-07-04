@@ -21,7 +21,7 @@ JobStatus = Literal["running", "done", "error"]
 class JobProgress:
     """A worker's live progress, read by the API under the job lock.
 
-    sync sets all three counters at once, matching the callback p2d's pipeline expects.
+    sync sets all three counters at once, matching the callback the pipeline expects.
     """
 
     _lock: threading.Lock

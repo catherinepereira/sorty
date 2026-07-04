@@ -88,40 +88,45 @@ async def _fetch_inaturalist(subject: str, limit: int = 20, offset: int = 0) -> 
 
 
 async def _fetch_openverse(subject: str, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
-    # Openverse pages natively, page is 1-indexed over page_size results
-    page_size = min(limit, OPENVERSE_MAX_PAGE_SIZE)
-    page = offset // page_size + 1 if page_size else 1
-    within_page = offset % page_size if page_size else 0
-    params = {
-        "q": subject,
-        "license_type": "commercial,modification",
-        "page_size": page_size,
-        "page": page,
-    }
+    # Openverse caps page_size at 20, so cover the [offset, offset+limit) window by
+    # walking whole pages from the first, then slice. Paging by a single computed page
+    # would drop results whenever the window straddles a page boundary.
+    want = offset + limit
+    page_size = OPENVERSE_MAX_PAGE_SIZE
+    last_page = -(-want // page_size)  # ceil division
+    results: list[dict[str, Any]] = []
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        try:
-            resp = await client.get("https://api.openverse.org/v1/images/", params=params)
-            resp.raise_for_status()
-        except httpx.HTTPError as exc:
-            log.warning("Openverse failed for %r: %s", subject, exc)
-            return []
+        for page in range(1, last_page + 1):
+            params = {
+                "q": subject,
+                "license_type": "commercial,modification",
+                "page_size": page_size,
+                "page": page,
+            }
+            try:
+                resp = await client.get("https://api.openverse.org/v1/images/", params=params)
+                resp.raise_for_status()
+            except httpx.HTTPError as exc:
+                log.warning("Openverse failed for %r: %s", subject, exc)
+                break
+            page_items = resp.json().get("results", [])
+            for img in page_items:
+                url = img.get("url", "")
+                if not url:
+                    continue
+                url = _wikimedia_full_to_thumb(url)
+                results.append({
+                    "source": "openverse",
+                    "url": url,
+                    "title": img.get("title", ""),
+                    "creator": img.get("creator", ""),
+                    "license": img.get("license", "unknown"),
+                    "source_site": img.get("source", ""),
+                })
+            if len(page_items) < page_size:
+                break  # last page reached
 
-    results = []
-    for img in resp.json().get("results", [])[:limit]:
-        url = img.get("url", "")
-        if not url:
-            continue
-        url = _wikimedia_full_to_thumb(url)
-        results.append({
-            "source": "openverse",
-            "url": url,
-            "title": img.get("title", ""),
-            "creator": img.get("creator", ""),
-            "license": img.get("license", "unknown"),
-            "source_site": img.get("source", ""),
-        })
-
-    return results
+    return results[offset : offset + limit]
 
 
 def _wikimedia_full_to_thumb(url: str, width: int = 960) -> str:
@@ -136,13 +141,14 @@ def _wikimedia_full_to_thumb(url: str, width: int = 960) -> str:
     return f"{base}thumb/{hash_path}/{filename}/{width}px-{filename}"
 
 
-async def _query_wikimedia_commons(subject: str, limit: int) -> list[dict[str, Any]]:
+async def _query_wikimedia_commons(subject: str, limit: int, offset: int = 0) -> list[dict[str, Any]]:
     params: dict[str, Any] = {
         "action": "query",
         "generator": "search",
         "gsrsearch": subject,
         "gsrnamespace": 6,
         "gsrlimit": min(limit, WIKIMEDIA_MAX_RESULTS),
+        "gsroffset": offset,
         "prop": "imageinfo",
         # iiurlwidth asks Wikimedia for a scaled thumbnail rather than the full file,
         # per their guidance for API consumers to avoid 429s.
@@ -165,9 +171,9 @@ async def _query_wikimedia_commons(subject: str, limit: int) -> list[dict[str, A
     return list(resp.json().get("query", {}).get("pages", {}).values())
 
 
-async def _fetch_wikimedia_commons(subject: str, limit: int = 20) -> list[dict[str, Any]]:
+async def _fetch_wikimedia_commons(subject: str, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
     results = []
-    for page in await _query_wikimedia_commons(subject, limit):
+    for page in await _query_wikimedia_commons(subject, limit, offset):
         info = (page.get("imageinfo") or [{}])[0]
         url = info.get("thumburl") or info.get("url", "")
         if not url or info.get("mime") == "image/svg+xml":
@@ -186,7 +192,7 @@ async def _fetch_wikimedia_commons(subject: str, limit: int = 20) -> list[dict[s
     return results
 
 
-async def _fetch_duckduckgo(subject: str, limit: int = 20) -> list[dict[str, Any]]:
+async def _fetch_duckduckgo(subject: str, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
     # DDG requires a POST first to get a vqd token, then a GET for results
     headers = {
         "User-Agent": _user_agent(),
@@ -218,7 +224,7 @@ async def _fetch_duckduckgo(subject: str, limit: int = 20) -> list[dict[str, Any
             return []
 
     results = []
-    for img in resp.json().get("results", [])[:limit]:
+    for img in resp.json().get("results", []):
         url = img.get("image", "")
         if not url:
             continue
@@ -232,12 +238,14 @@ async def _fetch_duckduckgo(subject: str, limit: int = 20) -> list[dict[str, Any
             "thumbnail": img.get("thumbnail", ""),
         })
 
-    return results
+    # DDG returns one page, so offset slices into it
+    return results[offset : offset + limit]
 
 
-async def _fetch_bing(subject: str, limit: int = 20) -> list[dict[str, Any]]:
+async def _fetch_bing(subject: str, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
     # Bing's image results page embeds each result as JSON in an m="..." attribute
-    # on the result anchors. murl is the full image URL. Paginate with first=.
+    # on the result anchors. murl is the full image URL. Paginate with first=,
+    # starting the scan at offset so add-more reaches deeper results.
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -247,8 +255,11 @@ async def _fetch_bing(subject: str, limit: int = 20) -> list[dict[str, Any]]:
     }
     results: list[dict[str, Any]] = []
     seen: set[str] = set()
+    # scan enough pages to fill limit even when limit is small, capped so a sparse
+    # query can't loop forever
+    span = max(limit * 2, 2 * BING_PAGE_SIZE)
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, follow_redirects=True) as client:
-        for first in range(0, limit * 2, BING_PAGE_SIZE):
+        for first in range(offset, offset + span, BING_PAGE_SIZE):
             if len(results) >= limit:
                 break
             try:
@@ -327,8 +338,13 @@ async def fetch_all(
     subjects: list[str],
     source_names: list[str],
     limit_per_subject: int = 20,
+    offset: int = 0,
 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
-    """Fetch from each source for every subject concurrently."""
+    """Fetch from each source for every subject concurrently.
+
+    offset skips that many results per source, so a follow-up call reaches images the
+    first pass did not return.
+    """
     tasks: dict[tuple[str, str], asyncio.Task] = {}
     async with asyncio.TaskGroup() as tg:
         for subject in subjects:
@@ -338,7 +354,7 @@ async def fetch_all(
                     log.warning("Unknown source %r - skipping", source_name)
                     continue
                 tasks[(subject, source_name)] = tg.create_task(
-                    adapter.fetch(subject, limit_per_subject)
+                    adapter.fetch(subject, limit_per_subject, offset)
                 )
 
     out: dict[str, dict[str, list[dict[str, Any]]]] = {}

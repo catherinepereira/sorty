@@ -3,13 +3,14 @@ from __future__ import annotations
 import hashlib
 import time
 from enum import Enum
-from typing import Any
 
 from pydantic import BaseModel, Field
 
-# Length of the hex item id derived from a source URL. 12 hex chars = 48 bits,
-# enough to make collisions across a single dataset's URLs vanishingly unlikely.
+# Length of the hex item id. 12 hex chars = 48 bits, enough that collisions across a
+# single dataset are vanishingly unlikely.
 ID_LENGTH = 12
+
+UNKNOWN_SOURCE = "unknown"
 
 
 class ReviewStatus(str, Enum):
@@ -21,18 +22,23 @@ class ReviewStatus(str, Enum):
 class DatasetItem(BaseModel):
     item_id: str
     label: str
-    source_url: str
     local_path: str
-    # the original human-readable subject the label was slugified from, for display
-    # defaults empty so manifests written before this field loads still validate
+    # the class name the label was slugified from, shown in the UI
     subject: str = ""
+    source: str = UNKNOWN_SOURCE
+    source_url: str = ""
+    # the original title the source gave the image, empty for manual or untitled images
+    title: str = ""
     review_status: ReviewStatus = ReviewStatus.pending
-    meta: dict[str, Any] = Field(default_factory=dict)
-    fetched_at: float = Field(default_factory=time.time)
+    # user-written note, kept out of the derived fields since it can't be recomputed
+    note: str = ""
+    # deleted_at is set when an item is in the recycle bin, absent otherwise
+    deleted_at: float | None = None
 
     @classmethod
-    def make_id(cls, source_url: str) -> str:
-        return hashlib.sha1(source_url.encode()).hexdigest()[:ID_LENGTH]
+    def make_id(cls, key: str) -> str:
+        """A stable id from a source URL or, for manual images, the local path."""
+        return hashlib.sha1(key.encode()).hexdigest()[:ID_LENGTH]
 
 
 class Dataset(BaseModel):

@@ -38,7 +38,7 @@ def test_restore_moves_back_and_clears(dataset):
     assert original.exists()
     assert not recyclebin._bin_path(root, item).exists()
     assert item.review_status.value == "pending"
-    assert "deleted_at" not in item.meta
+    assert item.deleted_at is None
     assert recyclebin.list_bin(ds) == []
 
 
@@ -54,7 +54,7 @@ def test_empty_bin_permanently_removes(dataset):
     assert len(ds.items) == before - 2
     assert recyclebin.list_bin(ds) == []
     # files are gone from the bin
-    bin_files = list((root / ".p2d" / "recyclebin").rglob("*.png"))
+    bin_files = list((root / ".sorty" / "recyclebin").rglob("*.png"))
     assert bin_files == []
 
 

@@ -39,13 +39,13 @@ def _progress():
     return JobProgress(_lock=threading.Lock())
 
 
-def test_generate_delegates_to_p2d(dataset):
-    """Sorty's generate is a thin wrapper: it loads the dataset, calls p2d.generate with
+def test_generate_delegates_to_core(dataset):
+    """Sorty's generate is a thin wrapper: it loads the dataset, calls core.generate with
     the recycle-bin keep predicate, and returns the result."""
     ds, root = dataset
     sentinel = GenerateResult(records=4, added=4, saved=4, failed=0, dropped=0)
 
-    with mock.patch.object(generate, "p2d_generate", return_value=sentinel) as m:
+    with mock.patch.object(generate, "core_generate", return_value=sentinel) as m:
         result = generate.generate(root, ["otter"], ["duckduckgo"], 5, _progress())
 
     assert result is sentinel
@@ -54,11 +54,11 @@ def test_generate_delegates_to_p2d(dataset):
     assert kwargs["keep_on_prune"] is generate.is_binned
 
 
-def test_generate_end_to_end_through_p2d(dataset):
-    """With p2d's fetch and download mocked, the whole path produces a saved manifest."""
+def test_generate_end_to_end(dataset):
+    """With fetch and download mocked, the whole path produces a saved manifest."""
     ds, root = dataset
 
-    async def fake_fetch(subjects, sources, limit):
+    async def fake_fetch(subjects, sources, limit, offset=0):
         return {s: {sources[0]: [{"source": sources[0], "url": f"https://x/{s}.jpg"}]} for s in subjects}
 
     def ok_download(url, dest, client=None):
@@ -75,3 +75,25 @@ def test_generate_end_to_end_through_p2d(dataset):
 
     assert result.saved == 1
     assert "otter" in load_dataset(root).subjects
+
+
+def test_set_subjects_saves_deduped_without_fetch(dataset):
+    _, root = dataset
+    out = generate.set_subjects(root, ["Owl", "owl ", " Hawk", "Owl"])
+    assert out == ["Owl", "Hawk"]
+    assert load_dataset(root).subjects == ["Owl", "Hawk"]
+
+
+def test_add_images_defaults_to_all_subjects(dataset):
+    """add_images with no subjects targets every subject already in the dataset."""
+    _, root = dataset
+    seen_targets = []
+
+    def fake_core_add(ds, r, targets, sources, n, **kw):
+        seen_targets.append(list(targets))
+        return GenerateResult(0, 0, 0, 0, 0)
+
+    with mock.patch.object(generate, "core_add_images", fake_core_add):
+        generate.add_images(root, [], ["duckduckgo"], 5, _progress())
+
+    assert set(seen_targets[0]) == {"robin", "sparrow"}

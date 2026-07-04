@@ -73,7 +73,7 @@ export function GenerateDialog({
           className={`rounded-lg px-3 py-1.5 ${mode === "subjects" ? "bg-primary text-white" : "text-muted"}`}
           onClick={() => setMode("subjects")}
         >
-          List subjects
+          List classes
         </button>
       </div>
 
@@ -86,7 +86,7 @@ export function GenerateDialog({
             onChange={(e) => setPrompt(e.target.value)}
           />
           <label className="text-muted flex items-center gap-2 text-sm">
-            Subjects to resolve
+            Classes to resolve
             <input
               type="number"
               min={1}
@@ -101,7 +101,7 @@ export function GenerateDialog({
         <textarea
           className="border-border focus:border-primary mt-3 w-full resize-none rounded-lg border px-3 py-2 outline-none"
           rows={3}
-          placeholder="One subject per line, or comma-separated"
+          placeholder="One class per line, or comma-separated"
           value={subjectText}
           onChange={(e) => setSubjectText(e.target.value)}
         />

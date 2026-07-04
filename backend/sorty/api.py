@@ -20,11 +20,12 @@ from sorty.core import (
     ReviewStatus,
     find_exact_duplicates,
     find_outliers,
+    has_manifest,
     load_dataset,
     save_dataset,
 )
 
-from sorty import annotate, classify, generate, recyclebin, workspace
+from sorty import annotate, classify, generate, recyclebin, refresh, summary, workspace
 from sorty.config import APP_NAME, workspace_root
 from sorty.jobs import JobManager, JobProgress
 from sorty.media import MEDIA_PREFIX, media_url, resolve_image
@@ -37,14 +38,21 @@ jobs = JobManager()
 # ----- serialization -----
 
 def _item_view(item: DatasetItem, root: Path) -> dict[str, Any]:
+    local = Path(item.local_path)
     return {
         "id": item.item_id,
         "label": item.label,
         "subject": item.subject or item.label,
         "status": item.review_status.value,
-        "note": item.meta.get("note", ""),
+        "note": item.note,
         "url": media_url(root / item.local_path),
         "binned": is_binned(item),
+        "source": item.source,
+        "source_url": item.source_url,
+        "title": item.title,
+        "local_path": item.local_path,
+        "directory": str(local.parent),
+        "filename": local.name,
     }
 
 
@@ -63,7 +71,7 @@ def _prediction_view(p: classify.Prediction, root: Path) -> dict[str, Any]:
 def _root(name: str) -> Path:
     """The dataset dir for a name, 404 if it has no manifest."""
     root = workspace.dataset_root(workspace_root(), name)
-    if not (root / ".p2d" / "manifest.json").exists():
+    if not has_manifest(root):
         raise HTTPException(status_code=404, detail=f"No dataset named {name!r}")
     return root
 
@@ -115,6 +123,30 @@ class TrainBody(BaseModel):
     img_size: int = 224
 
 
+class RenameBody(BaseModel):
+    name: str
+
+
+class SubjectsBody(BaseModel):
+    subjects: list[str]
+
+
+class ResolveBody(BaseModel):
+    prompt: str
+    count: int | None = None
+    exclude: list[str] | None = None
+
+
+class AddImagesBody(BaseModel):
+    subjects: list[str] | None = None  # None or empty means every class
+    sources: list[str] | None = None
+    per_subject: int = 20
+
+
+class SourceBody(BaseModel):
+    source: str
+
+
 # ----- capability probes -----
 
 @app.get("/api/sources")
@@ -158,6 +190,24 @@ def create_dataset(body: CreateBody) -> dict[str, str]:
     return {"name": root.name}
 
 
+@app.patch("/api/datasets/{name}")
+def rename_dataset(name: str, body: RenameBody) -> dict[str, str]:
+    try:
+        root = workspace.rename_dataset(workspace_root(), name, body.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"name": root.name}
+
+
+@app.delete("/api/datasets/{name}")
+def delete_dataset(name: str) -> dict[str, bool]:
+    try:
+        workspace.delete_dataset(workspace_root(), name)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"deleted": True}
+
+
 @app.get("/api/datasets/{name}")
 def get_dataset(name: str) -> dict[str, Any]:
     ds, root = _load(name)
@@ -176,6 +226,56 @@ def get_dataset(name: str) -> dict[str, Any]:
 def get_bin(name: str) -> dict[str, Any]:
     ds, root = _load(name)
     return {"items": [_item_view(i, root) for i in recyclebin.list_bin(ds)]}
+
+
+@app.get("/api/datasets/{name}/summary")
+def dataset_summary(name: str) -> dict[str, Any]:
+    ds, root = _load(name)
+    return summary.summarize(ds, root)
+
+
+@app.get("/api/datasets/{name}/items/{item_id}")
+def get_item(name: str, item_id: str) -> dict[str, Any]:
+    ds, root = _load(name)
+    try:
+        item = annotate._find(ds, item_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="No such item")
+    view = _item_view(item, root)
+    view.update(summary.file_info(root, item.local_path))
+    return view
+
+
+@app.post("/api/datasets/{name}/refresh")
+def refresh_manifest(name: str) -> dict[str, int]:
+    ds, root = _load(name)
+    return refresh.refresh_manifest(ds, root)
+
+
+# ----- classes (subjects) -----
+
+@app.post("/api/datasets/{name}/subjects")
+def set_subjects(name: str, body: SubjectsBody) -> dict[str, list[str]]:
+    root = _root(name)
+    return {"subjects": generate.set_subjects(root, body.subjects)}
+
+
+@app.post("/api/datasets/{name}/resolve-subjects")
+def resolve_subjects(name: str, body: ResolveBody) -> dict[str, list[str]]:
+    _root(name)  # 404 if the dataset is missing
+    try:
+        subjects = generate.resolve(body.prompt, count=body.count, exclude=body.exclude)
+    except generate.OllamaUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"subjects": subjects}
+
+
+@app.post("/api/datasets/{name}/delete-source")
+def delete_source(name: str, body: SourceBody) -> dict[str, int]:
+    ds, root = _load(name)
+    binned = recyclebin.delete_by_source(ds, root, body.source)
+    save_dataset(ds, root)
+    return {"binned": binned}
 
 
 # ----- annotation -----
@@ -260,12 +360,30 @@ def start_generate(name: str, body: GenerateBody) -> dict[str, str]:
 
     def work(p: JobProgress):
         result = generate.generate(root, subjects, sources, limit, p)
-        return {
-            "records": result.records, "added": result.added,
-            "saved": result.saved, "failed": result.failed, "dropped": result.dropped,
-        }
+        return _result_view(result)
 
     return {"job_id": jobs.submit(work)}
+
+
+@app.post("/api/datasets/{name}/add-images")
+def start_add_images(name: str, body: AddImagesBody) -> dict[str, str]:
+    root = _root(name)
+    subjects = body.subjects or []
+    sources = body.sources or []
+    per_subject = body.per_subject
+
+    def work(p: JobProgress):
+        result = generate.add_images(root, subjects, sources, per_subject, p)
+        return _result_view(result)
+
+    return {"job_id": jobs.submit(work)}
+
+
+def _result_view(result) -> dict[str, int]:
+    return {
+        "records": result.records, "added": result.added,
+        "saved": result.saved, "failed": result.failed, "dropped": result.dropped,
+    }
 
 
 def _bin_flagged(ds: Dataset, root: Path, flagged: list[DatasetItem]) -> int:

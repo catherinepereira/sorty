@@ -12,7 +12,7 @@ import httpx
 log = logging.getLogger(__name__)
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-DEFAULT_MODEL = os.environ.get("P2D_MODEL", "qwen2.5:3b-instruct")
+DEFAULT_MODEL = os.environ.get("SORTY_MODEL", "qwen2.5:3b-instruct")
 
 
 def _parse_json_array(raw: str) -> list:

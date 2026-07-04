@@ -1,7 +1,7 @@
-"""Generate images into a dataset via prompt2dataset's public API.
+"""Generate and add images into a dataset.
 
-Subject resolution and the fetch/download/prune pipeline both live in p2d. Sorty adds a
-friendly Ollama-down error and bridges p2d's progress callback to its own Progress.
+Class resolution and the fetch/download/prune pipeline live in sorty.core. This adds a
+clear Ollama-down error and bridges the core progress callback to the job's progress.
 """
 
 from __future__ import annotations
@@ -18,13 +18,21 @@ from sorty.core import (
     save_dataset,
     source_names,
 )
-from sorty.core import generate as p2d_generate
-from sorty.core.progress import Progress as P2DProgress
+from sorty.core import add_images as core_add_images
+from sorty.core import generate as core_generate
+from sorty.core.progress import Progress as CoreProgress
 
 from sorty.jobs import JobProgress
 from sorty.recyclebin import is_binned
 
-__all__ = ["source_names", "resolve", "generate", "OllamaUnavailable"]
+__all__ = [
+    "source_names",
+    "resolve",
+    "generate",
+    "add_images",
+    "set_subjects",
+    "OllamaUnavailable",
+]
 
 
 class OllamaUnavailable(RuntimeError):
@@ -53,6 +61,13 @@ def resolve(
     return subjects
 
 
+def _bridge(progress: JobProgress):
+    def on_progress(p: CoreProgress) -> None:
+        progress.sync(p.total, p.done, p.message)
+
+    return on_progress
+
+
 def generate(
     root: Path,
     subjects: list[str],
@@ -62,17 +77,50 @@ def generate(
 ) -> GenerateResult:
     """Fetch and download images for the subjects into the dataset at root.
 
-    Delegates to p2d's headless generate, which merges new subjects, downloads, and
-    prunes failed downloads. Binned items are kept through the prune.
+    Merges new subjects, downloads, and prunes failed downloads. Binned items are kept
+    through the prune. Skips subjects already in the dataset.
     """
     ds = load_dataset(root)
-
-    def on_progress(p: P2DProgress) -> None:
-        progress.sync(p.total, p.done, p.message)
-
-    result = p2d_generate(
+    result = core_generate(
         ds, root, subjects, sources, limit,
-        on_progress=on_progress, keep_on_prune=is_binned,
+        on_progress=_bridge(progress), keep_on_prune=is_binned,
     )
     save_dataset(ds, root)
     return result
+
+
+def add_images(
+    root: Path,
+    subjects: list[str],
+    sources: list[str],
+    per_subject: int,
+    progress: JobProgress,
+) -> GenerateResult:
+    """Add more images to existing subjects, pulling URLs not already downloaded.
+
+    Unlike generate, this does not skip known subjects. subjects empty means every
+    subject in the dataset.
+    """
+    ds = load_dataset(root)
+    targets = subjects or list(ds.subjects)
+    result = core_add_images(
+        ds, root, targets, sources or list(ds.sources), per_subject,
+        on_progress=_bridge(progress), keep_on_prune=is_binned,
+    )
+    save_dataset(ds, root)
+    return result
+
+
+def set_subjects(root: Path, subjects: list[str]) -> list[str]:
+    """Save a class list on the dataset without fetching images, deduped in order."""
+    ds = load_dataset(root)
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for s in (s.strip() for s in subjects):
+        key = s.lower()
+        if s and key not in seen:
+            seen.add(key)
+            ordered.append(s)
+    ds.subjects = ordered
+    save_dataset(ds, root)
+    return ordered

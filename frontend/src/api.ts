@@ -1,6 +1,7 @@
 import type {
   DatasetDetail,
   DatasetSummary,
+  DatasetSummaryStats,
   Item,
   JobState,
   Status,
@@ -31,12 +32,14 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function post<T>(path: string, body?: unknown): Promise<T> {
+function send<T>(method: string, path: string, body?: unknown): Promise<T> {
   return req<T>(path, {
-    method: "POST",
+    method,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
+
+const post = <T>(path: string, body?: unknown) => send<T>("POST", path, body);
 
 export { ApiError };
 
@@ -52,8 +55,22 @@ export const api = {
   createDataset: (name: string, prompt: string) =>
     post<{ name: string }>("/api/datasets", { name, prompt }),
   getDataset: (name: string) => req<DatasetDetail>(`/api/datasets/${name}`),
+  renameDataset: (name: string, newName: string) =>
+    send<{ name: string }>("PATCH", `/api/datasets/${name}`, { name: newName }),
+  deleteDataset: (name: string) =>
+    send<{ deleted: boolean }>("DELETE", `/api/datasets/${name}`),
   getBin: (name: string) =>
     req<{ items: Item[] }>(`/api/datasets/${name}/bin`).then((r) => r.items),
+  getSummary: (name: string) =>
+    req<DatasetSummaryStats>(`/api/datasets/${name}/summary`),
+  getItem: (name: string, id: string) =>
+    req<
+      Item & {
+        width: number | null;
+        height: number | null;
+        bytes: number | null;
+      }
+    >(`/api/datasets/${name}/items/${id}`),
 
   setLabel: (name: string, id: string, subject: string) =>
     post<{ item: Item }>(`/api/datasets/${name}/items/${id}/label`, {
@@ -85,12 +102,33 @@ export const api = {
       limit: number;
     },
   ) => post<{ job_id: string }>(`/api/datasets/${name}/generate`, body),
+  addImages: (
+    name: string,
+    body: { subjects?: string[]; sources?: string[]; per_subject: number },
+  ) => post<{ job_id: string }>(`/api/datasets/${name}/add-images`, body),
   dedup: (name: string, mode: "exact" | "outliers") =>
     post<{ job_id: string }>(`/api/datasets/${name}/dedup`, { mode }),
   train: (name: string, model: string, epochs: number) =>
     post<{ job_id: string }>(`/api/datasets/${name}/train`, { model, epochs }),
   infer: (name: string) =>
     post<{ job_id: string }>(`/api/datasets/${name}/infer`),
+
+  setSubjects: (name: string, subjects: string[]) =>
+    post<{ subjects: string[] }>(`/api/datasets/${name}/subjects`, {
+      subjects,
+    }),
+  resolveSubjects: (
+    name: string,
+    body: { prompt: string; count?: number; exclude?: string[] },
+  ) =>
+    post<{ subjects: string[] }>(
+      `/api/datasets/${name}/resolve-subjects`,
+      body,
+    ),
+  deleteSource: (name: string, source: string) =>
+    post<{ binned: number }>(`/api/datasets/${name}/delete-source`, { source }),
+  refresh: (name: string) =>
+    post<{ added: number; pruned: number }>(`/api/datasets/${name}/refresh`),
 
   job: (id: string) => req<JobState>(`/api/jobs/${id}`),
 };

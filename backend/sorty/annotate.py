@@ -1,7 +1,7 @@
 """Per-image annotation: status, note, and relabel.
 
 These are thin writes over a DatasetItem. Relabeling also moves the file into the new
-label's folder and rewrites local_path so disk and manifest stay in step with p2d's
+label's folder and rewrites local_path so disk and manifest stay in step with the
 <label>/<label>_<id>.<ext> layout. Callers save the manifest afterward.
 """
 
@@ -27,12 +27,7 @@ def set_status(ds: Dataset, item_id: str, status: ReviewStatus) -> None:
 
 
 def set_note(ds: Dataset, item_id: str, note: str) -> None:
-    item = _find(ds, item_id)
-    note = note.strip()
-    if note:
-        item.meta["note"] = note
-    else:
-        item.meta.pop("note", None)
+    _find(ds, item_id).note = note.strip()
     ds.touch()
 
 
