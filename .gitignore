@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
+.pytest_cache/
 
 # Build / packaging
 dist/
@@ -12,7 +13,12 @@ build/
 venv/
 env/
 
-# Datasets Sortie creates
+# Node / frontend
+node_modules/
+frontend/dist/
+.vite/
+
+# Datasets Sorty creates
 datasets/
 
 # OS
