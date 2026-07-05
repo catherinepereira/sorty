@@ -60,3 +60,36 @@ def set_label(ds: Dataset, root: Path, item_id: str, new_subject: str) -> None:
         if label not in ds.subjects:
             ds.subjects.append(label)
     ds.touch()
+
+
+def move_to_class(ds: Dataset, root: Path, item_ids: list[str], subject: str) -> int:
+    """Relabel many items to one class, moving their files. Returns how many moved.
+
+    The target class is added to the subject list with its display name if new. Missing
+    ids are skipped rather than raising, so a stale selection does not abort the batch.
+    """
+    subject = subject.strip()
+    label = slugify(subject)
+    if not label:
+        raise ValueError("Class is empty after slugifying.")
+    if subject not in ds.subjects and label not in {slugify(s) for s in ds.subjects}:
+        ds.subjects.append(subject)
+
+    wanted = set(item_ids)
+    moved = 0
+    for item in ds.items:
+        if item.item_id not in wanted:
+            continue
+        item.subject = subject
+        if label != item.label:
+            old_path = root / item.local_path
+            new_rel = Path(label) / f"{label}_{item.item_id}{old_path.suffix}"
+            (root / new_rel).parent.mkdir(parents=True, exist_ok=True)
+            if old_path.exists():
+                old_path.replace(root / new_rel)
+            item.label = label
+            item.local_path = str(new_rel)
+        moved += 1
+    if moved:
+        ds.touch()
+    return moved

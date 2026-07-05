@@ -72,8 +72,12 @@ def test_delete_restore_roundtrip(with_dataset):
         "/api/datasets/birds/delete", json={"item_ids": [victim]}
     ).json() == {"binned": 1}
 
-    live = with_dataset.get("/api/datasets/birds").json()["items"]
+    after = with_dataset.get("/api/datasets/birds").json()
+    live = after["items"]
     assert victim not in {i["id"] for i in live}
+    # the header total counts live items only, so a binned item drops it from 6 to 5
+    assert after["stats"]["total"] == 5
+    assert after["stats"]["invalid"] == 0
     binned = with_dataset.get("/api/datasets/birds/bin").json()["items"]
     assert {i["id"] for i in binned} == {victim}
 
@@ -81,6 +85,34 @@ def test_delete_restore_roundtrip(with_dataset):
         "/api/datasets/birds/restore", json={"item_ids": [victim]}
     ).json() == {"restored": 1}
     assert with_dataset.get("/api/datasets/birds/bin").json()["items"] == []
+
+
+def test_move_to_class_relabels_selected(with_dataset):
+    items = with_dataset.get("/api/datasets/birds").json()["items"]
+    robins = [i["id"] for i in items if i["subject"] == "robin"]
+
+    r = with_dataset.post(
+        "/api/datasets/birds/move-to-class",
+        json={"item_ids": robins, "subject": "sparrow"},
+    )
+    assert r.json() == {"moved": 3}
+
+    after = with_dataset.get("/api/datasets/birds").json()["items"]
+    assert all(i["subject"] == "sparrow" for i in after if i["id"] in robins)
+    # every moved file now lives under the sparrow folder
+    for i in after:
+        if i["id"] in robins:
+            assert i["directory"] == "sparrow"
+
+
+def test_move_to_missing_class_creates_it(with_dataset):
+    victim = with_dataset.get("/api/datasets/birds").json()["items"][0]["id"]
+    with_dataset.post(
+        "/api/datasets/birds/move-to-class",
+        json={"item_ids": [victim], "subject": "Owl"},
+    )
+    body = with_dataset.get("/api/datasets/birds").json()
+    assert "Owl" in body["subjects"]
 
 
 def test_empty_bin_is_permanent(with_dataset):
@@ -300,15 +332,14 @@ def test_delete_by_unknown_source_bins_nothing(with_dataset):
     assert r.json()["binned"] == 0
 
 
-def test_summary_reports_per_class_and_sizes(with_dataset):
+def test_summary_reports_per_class_and_source(with_dataset):
     s = with_dataset.get("/api/datasets/birds/summary").json()
     assert s["total"] == 6
     names = {c["name"] for c in s["per_class"]}
     assert names == {"robin", "sparrow"}
     assert all(c["count"] == 3 for c in s["per_class"])
     assert s["per_source"] == [{"name": "test", "count": 6}]
-    # conftest images are 8x8 PNGs with no recorded meta size, read from the file
-    assert s["image_sizes"]["max_width"] == 8
+    assert s["bytes_total"] > 0
 
 
 def test_generate_passes_target_total_through(with_dataset):

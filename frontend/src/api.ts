@@ -46,7 +46,6 @@ export { ApiError };
 export const api = {
   sources: () => req<{ sources: string[] }>("/api/sources"),
   models: () => req<{ models: string[] }>("/api/models"),
-  torch: () => req<{ available: boolean }>("/api/torch"),
 
   listDatasets: () =>
     req<{ datasets: DatasetSummary[] }>("/api/datasets").then(
@@ -63,6 +62,20 @@ export const api = {
     req<{ items: Item[] }>(`/api/datasets/${name}/bin`).then((r) => r.items),
   getSummary: (name: string) =>
     req<DatasetSummaryStats>(`/api/datasets/${name}/summary`),
+  deleteClass: (name: string, className: string) =>
+    post<{ removed: number }>(`/api/datasets/${name}/delete-class`, {
+      class_name: className,
+    }),
+  renameClass: (name: string, oldName: string, newName: string) =>
+    post<{ moved: number }>(`/api/datasets/${name}/rename-class`, {
+      old_name: oldName,
+      new_name: newName,
+    }),
+  mergeClasses: (name: string, sources: string[], target: string) =>
+    post<{ moved: number }>(`/api/datasets/${name}/merge-classes`, {
+      sources,
+      target,
+    }),
   getItem: (name: string, id: string) =>
     req<
       Item & {
@@ -82,6 +95,11 @@ export const api = {
     }),
   setNote: (name: string, id: string, note: string) =>
     post<{ item: Item }>(`/api/datasets/${name}/items/${id}/note`, { note }),
+  moveToClass: (name: string, ids: string[], subject: string) =>
+    post<{ moved: number }>(`/api/datasets/${name}/move-to-class`, {
+      item_ids: ids,
+      subject,
+    }),
 
   del: (name: string, ids: string[]) =>
     post<{ binned: number }>(`/api/datasets/${name}/delete`, { item_ids: ids }),

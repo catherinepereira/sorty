@@ -25,7 +25,7 @@ from sorty.core import (
     save_dataset,
 )
 
-from sorty import annotate, classify, generate, recyclebin, refresh, summary, workspace
+from sorty import annotate, classes, classify, generate, recyclebin, refresh, summary, workspace
 from sorty.config import APP_NAME, workspace_root
 from sorty.jobs import JobManager, JobProgress
 from sorty.media import MEDIA_PREFIX, media_url, resolve_image
@@ -105,6 +105,11 @@ class LabelBody(BaseModel):
     subject: str
 
 
+class MoveToClassBody(BaseModel):
+    item_ids: list[str]
+    subject: str
+
+
 class StatusBody(BaseModel):
     status: ReviewStatus
 
@@ -134,6 +139,20 @@ class RenameBody(BaseModel):
 
 class SubjectsBody(BaseModel):
     subjects: list[str]
+
+
+class DeleteClassBody(BaseModel):
+    class_name: str
+
+
+class RenameClassBody(BaseModel):
+    old_name: str
+    new_name: str
+
+
+class MergeClassesBody(BaseModel):
+    sources: list[str]
+    target: str
 
 
 class ResolveBody(BaseModel):
@@ -216,9 +235,18 @@ def get_dataset(name: str) -> dict[str, Any]:
         "prompt": ds.prompt,
         "subjects": ds.subjects,
         "sources": ds.sources,
-        "stats": ds.stats(),
+        # stats over live items only, so the count matches the grid and the files on disk
+        # rather than including binned items that live under the recycle bin
+        "stats": _live_stats(live),
         "items": [_item_view(i, root) for i in live],
     }
+
+
+def _live_stats(live: list[DatasetItem]) -> dict[str, int]:
+    counts = {"total": len(live), "pending": 0, "valid": 0, "invalid": 0}
+    for item in live:
+        counts[item.review_status.value] += 1
+    return counts
 
 
 @app.get("/api/datasets/{name}/bin")
@@ -259,6 +287,36 @@ def set_subjects(name: str, body: SubjectsBody) -> dict[str, list[str]]:
     return {"subjects": generate.set_subjects(root, body.subjects)}
 
 
+@app.post("/api/datasets/{name}/delete-class")
+def delete_class(name: str, body: DeleteClassBody) -> dict[str, int]:
+    ds, root = _load(name)
+    removed = classes.delete_class(ds, root, body.class_name)
+    save_dataset(ds, root)
+    return {"removed": removed}
+
+
+@app.post("/api/datasets/{name}/rename-class")
+def rename_class(name: str, body: RenameClassBody) -> dict[str, int]:
+    ds, root = _load(name)
+    try:
+        moved = classes.rename_class(ds, root, body.old_name, body.new_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    save_dataset(ds, root)
+    return {"moved": moved}
+
+
+@app.post("/api/datasets/{name}/merge-classes")
+def merge_classes(name: str, body: MergeClassesBody) -> dict[str, int]:
+    ds, root = _load(name)
+    try:
+        moved = classes.merge_classes(ds, root, body.sources, body.target)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    save_dataset(ds, root)
+    return {"moved": moved}
+
+
 @app.post("/api/datasets/{name}/resolve-subjects")
 def resolve_subjects(name: str, body: ResolveBody) -> dict[str, list[str]]:
     _root(name)  # 404 if the dataset is missing
@@ -290,6 +348,17 @@ def set_label(name: str, item_id: str, body: LabelBody) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     save_dataset(ds, root)
     return {"item": _item_view(annotate._find(ds, item_id), root)}
+
+
+@app.post("/api/datasets/{name}/move-to-class")
+def move_to_class(name: str, body: MoveToClassBody) -> dict[str, int]:
+    ds, root = _load(name)
+    try:
+        moved = annotate.move_to_class(ds, root, body.item_ids, body.subject)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    save_dataset(ds, root)
+    return {"moved": moved}
 
 
 @app.post("/api/datasets/{name}/items/{item_id}/status")

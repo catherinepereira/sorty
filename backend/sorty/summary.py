@@ -16,11 +16,6 @@ from sorty.core import Dataset
 from sorty.recyclebin import is_binned
 
 
-# cap on how many images the summary decodes for dimension stats, a sample is enough for
-# the min/max/mean the panel shows and avoids opening every file on a large dataset
-DIMENSION_SAMPLE = 60
-
-
 def _dimensions(path: Path) -> tuple[int, int] | None:
     """Width and height read from the file header, None if unreadable."""
     try:
@@ -60,11 +55,7 @@ def file_info(root: Path, local_path: str) -> dict:
 
 
 def summarize(ds: Dataset, root: Path) -> dict:
-    """Per-class counts, per-source counts, and image size stats for the live dataset.
-
-    Byte totals stat every file, but dimensions are sampled, decoding every image on a
-    large dataset would block the request for a stat that only needs a rough range.
-    """
+    """Per-class counts, per-source counts, and total bytes on disk for the live dataset."""
     live = [i for i in ds.items if not is_binned(i)]
 
     per_class = Counter(i.subject or i.label for i in live)
@@ -79,35 +70,10 @@ def summarize(ds: Dataset, root: Path) -> dict:
         if size is not None:
             bytes_total += size
 
-    stride = max(1, len(live) // DIMENSION_SAMPLE)
-    widths: list[int] = []
-    heights: list[int] = []
-    for item in live[::stride]:
-        path = _safe_path(root, item.local_path)
-        if path is None:
-            continue
-        dims = _dimensions(path)
-        if dims:
-            widths.append(dims[0])
-            heights.append(dims[1])
-
-    size_stats = None
-    if widths:
-        size_stats = {
-            "measured": len(widths),
-            "min_width": min(widths),
-            "max_width": max(widths),
-            "min_height": min(heights),
-            "max_height": max(heights),
-            "mean_width": round(sum(widths) / len(widths)),
-            "mean_height": round(sum(heights) / len(heights)),
-        }
-
     return {
         "total": len(live),
         "subjects": len(ds.subjects),
         "per_class": [{"name": name, "count": n} for name, n in sorted(per_class.items())],
         "per_source": [{"name": name, "count": n} for name, n in sorted(per_source.items())],
         "bytes_total": bytes_total,
-        "image_sizes": size_stats,
     }

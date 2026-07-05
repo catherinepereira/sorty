@@ -4,7 +4,7 @@ import { api } from "../api";
 import { useDataset } from "../stores/dataset";
 import type { Item, Status } from "../types";
 
-const STATUSES: Status[] = ["pending", "valid", "invalid"];
+const STATUSES: Status[] = ["pending", "valid"];
 
 export function AnnotateDialog({
   item,
@@ -18,6 +18,7 @@ export function AnnotateDialog({
   onDelete: (id: string) => void;
 }) {
   const replaceItem = useDataset((s) => s.replaceItem);
+  const [current, setCurrent] = useState<Item | null>(item);
   const [subject, setSubject] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
@@ -28,6 +29,7 @@ export function AnnotateDialog({
   } | null>(null);
 
   useEffect(() => {
+    setCurrent(item);
     if (item) {
       setSubject(item.subject);
       setNote(item.note);
@@ -41,18 +43,22 @@ export function AnnotateDialog({
     }
   }, [item, datasetName]);
 
-  if (!item) return null;
+  if (!current) return null;
+
+  // update both the store (so the grid reflects the change) and the modal's own copy
+  const applied = (updated: Item) => {
+    setCurrent(updated);
+    replaceItem(updated);
+  };
 
   const save = async () => {
     setSaving(true);
     try {
-      if (subject.trim() && subject.trim() !== item.subject) {
-        replaceItem(
-          (await api.setLabel(datasetName, item.id, subject.trim())).item,
-        );
+      if (subject.trim() && subject.trim() !== current.subject) {
+        applied((await api.setLabel(datasetName, current.id, subject.trim())).item);
       }
-      if (note !== item.note) {
-        replaceItem((await api.setNote(datasetName, item.id, note)).item);
+      if (note !== current.note) {
+        applied((await api.setNote(datasetName, current.id, note)).item);
       }
       onClose();
     } finally {
@@ -61,7 +67,7 @@ export function AnnotateDialog({
   };
 
   const setStatus = async (status: Status) => {
-    replaceItem((await api.setStatus(datasetName, item.id, status)).item);
+    applied((await api.setStatus(datasetName, current.id, status)).item);
   };
 
   return (
@@ -69,11 +75,11 @@ export function AnnotateDialog({
       <div className="flex gap-5">
         <div className="w-48 shrink-0">
           <img
-            src={item.url}
-            alt={item.subject}
+            src={current.url}
+            alt={current.subject}
             className="h-48 w-48 rounded-lg object-cover"
           />
-          <ItemDetail item={item} dims={dims} />
+          <ItemDetail item={current} dims={dims} />
         </div>
         <div className="flex-1 space-y-4">
           <div>
@@ -92,7 +98,7 @@ export function AnnotateDialog({
                   key={s}
                   onClick={() => setStatus(s)}
                   className={`rounded-lg px-3 py-1.5 text-sm capitalize ${
-                    item.status === s
+                    current.status === s
                       ? "bg-primary text-white"
                       : "border-border text-muted hover:bg-bg border"
                   }`}
@@ -116,7 +122,7 @@ export function AnnotateDialog({
       <div className="mt-6 flex items-center justify-between">
         <button
           className="text-bad hover:bg-bad/10 rounded-lg px-4 py-2"
-          onClick={() => onDelete(item.id)}
+          onClick={() => onDelete(current.id)}
         >
           Delete to bin
         </button>

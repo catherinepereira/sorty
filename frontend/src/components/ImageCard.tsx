@@ -19,7 +19,11 @@ export const ImageCard = memo(function ImageCard({
   onOpen: (item: Item) => void;
   onDelete: (id: string) => void;
 }) {
-  const clickCard = () => (selectMode ? onToggle(item.id) : onOpen(item));
+  // in select mode the grid wrapper's mousedown/drag owns selection, so the card click
+  // only opens the detail view when not selecting
+  const clickCard = () => {
+    if (!selectMode) onOpen(item);
+  };
 
   return (
     <div

@@ -67,13 +67,4 @@ export interface DatasetSummaryStats {
   per_class: { name: string; count: number }[];
   per_source: { name: string; count: number }[];
   bytes_total: number;
-  image_sizes: {
-    measured: number;
-    min_width: number;
-    max_width: number;
-    min_height: number;
-    max_height: number;
-    mean_width: number;
-    mean_height: number;
-  } | null;
 }
