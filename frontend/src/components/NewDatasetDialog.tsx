@@ -4,8 +4,9 @@ import { api, ApiError } from "../api";
 import { ClassEditor } from "./ClassEditor";
 
 /**
- * Two steps: name the dataset (which creates it so class generation has somewhere to
- * resolve against), then define its classes and save. onDone hands back the new slug.
+ * Two steps: name the dataset, then define its classes and save. Naming creates the
+ * dataset so the class editor has somewhere to resolve against. onDone hands back the
+ * new slug.
  */
 export function NewDatasetDialog({
   open,
@@ -18,7 +19,6 @@ export function NewDatasetDialog({
 }) {
   const [step, setStep] = useState<"name" | "classes">("name");
   const [name, setName] = useState("");
-  const [prompt, setPrompt] = useState("");
   const [slug, setSlug] = useState("");
   const [classes, setClasses] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -27,7 +27,6 @@ export function NewDatasetDialog({
   const reset = () => {
     setStep("name");
     setName("");
-    setPrompt("");
     setSlug("");
     setClasses([]);
     setError("");
@@ -42,7 +41,7 @@ export function NewDatasetDialog({
     setBusy(true);
     setError("");
     try {
-      const { name: created } = await api.createDataset(name, prompt);
+      const { name: created } = await api.createDataset(name);
       setSlug(created);
       setStep("classes");
     } catch (e) {
@@ -78,12 +77,6 @@ export function NewDatasetDialog({
               onKeyDown={(e) =>
                 e.key === "Enter" && name.trim() && createAndAdvance()
               }
-            />
-            <input
-              className="border-border focus:border-primary w-full rounded-lg border px-3 py-2 outline-none"
-              placeholder="Prompt (optional), what the dataset is about"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
             />
             {error && <p className="text-bad text-sm">{error}</p>}
           </div>

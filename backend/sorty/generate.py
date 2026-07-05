@@ -19,7 +19,6 @@ from sorty.core import (
     source_names,
 )
 from sorty.core import add_images as core_add_images
-from sorty.core import generate as core_generate
 from sorty.core.progress import Progress as CoreProgress
 
 from sorty.jobs import JobProgress
@@ -28,7 +27,6 @@ from sorty.recyclebin import is_binned
 __all__ = [
     "source_names",
     "resolve",
-    "generate",
     "add_images",
     "set_subjects",
     "OllamaUnavailable",
@@ -68,43 +66,26 @@ def _bridge(progress: JobProgress):
     return on_progress
 
 
-def generate(
-    root: Path,
-    subjects: list[str],
-    sources: list[str],
-    limit: int,
-    progress: JobProgress,
-) -> GenerateResult:
-    """Fetch and download images for the subjects into the dataset at root.
-
-    Merges new subjects, downloads, and prunes failed downloads. Binned items are kept
-    through the prune. Skips subjects already in the dataset.
-    """
-    ds = load_dataset(root)
-    result = core_generate(
-        ds, root, subjects, sources, limit,
-        on_progress=_bridge(progress), keep_on_prune=is_binned,
-    )
-    save_dataset(ds, root)
-    return result
-
-
 def add_images(
     root: Path,
     subjects: list[str],
     sources: list[str],
-    per_subject: int,
+    count: int,
     progress: JobProgress,
+    *,
+    target_total: bool = False,
 ) -> GenerateResult:
-    """Add more images to existing subjects, pulling URLs not already downloaded.
+    """Fetch images for the given subjects, adding any not already downloaded.
 
-    Unlike generate, this does not skip known subjects. subjects empty means every
-    subject in the dataset.
+    count means "add up to count new per subject"; with target_total it means "bring
+    each subject up to count total". Empty subjects means every subject in the dataset,
+    empty sources means every source it already uses. Binned items survive the prune.
     """
     ds = load_dataset(root)
     targets = subjects or list(ds.subjects)
     result = core_add_images(
-        ds, root, targets, sources or list(ds.sources), per_subject,
+        ds, root, targets, sources or list(ds.sources), count,
+        target_total=target_total,
         on_progress=_bridge(progress), keep_on_prune=is_binned,
     )
     save_dataset(ds, root)

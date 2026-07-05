@@ -39,27 +39,35 @@ def _progress():
     return JobProgress(_lock=threading.Lock())
 
 
-def test_generate_delegates_to_core(dataset):
-    """Sorty's generate is a thin wrapper: it loads the dataset, calls core.generate with
-    the recycle-bin keep predicate, and returns the result."""
+def test_add_images_delegates_to_core(dataset):
+    """Sorty's add_images loads the dataset, calls core.add_images with the recycle-bin
+    keep predicate and target_total, and returns the result."""
     ds, root = dataset
     sentinel = GenerateResult(records=4, added=4, saved=4, failed=0, dropped=0)
 
-    with mock.patch.object(generate, "core_generate", return_value=sentinel) as m:
-        result = generate.generate(root, ["otter"], ["duckduckgo"], 5, _progress())
+    with mock.patch.object(generate, "core_add_images", return_value=sentinel) as m:
+        result = generate.add_images(
+            root, ["otter"], ["duckduckgo"], 5, _progress(), target_total=True
+        )
 
     assert result is sentinel
     (args, kwargs) = m.call_args
     assert args[2] == ["otter"] and args[3] == ["duckduckgo"] and args[4] == 5
+    assert kwargs["target_total"] is True
     assert kwargs["keep_on_prune"] is generate.is_binned
 
 
-def test_generate_end_to_end(dataset):
-    """With fetch and download mocked, the whole path produces a saved manifest."""
+def test_add_images_fetches_known_subject(dataset):
+    """A subject already in the dataset still fetches new images, unlike the old generate
+    which skipped known subjects. Pages are deduped against URLs already downloaded."""
     ds, root = dataset
 
     async def fake_fetch(subjects, sources, limit, offset=0):
-        return {s: {sources[0]: [{"source": sources[0], "url": f"https://x/{s}.jpg"}]} for s in subjects}
+        # a fresh URL per page so paging keeps finding new images
+        return {
+            s: {sources[0]: [{"source": sources[0], "url": f"https://x/{s}/{offset}.jpg"}]}
+            for s in subjects
+        }
 
     def ok_download(url, dest, client=None):
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -71,10 +79,37 @@ def test_generate_end_to_end(dataset):
     with mock.patch.object(pipeline, "fetch_all", fake_fetch), mock.patch.object(
         pipeline, "download_file", ok_download
     ):
-        result = generate.generate(root, ["otter"], ["duckduckgo"], 3, _progress())
+        result = generate.add_images(root, ["robin"], ["duckduckgo"], 2, _progress())
 
-    assert result.saved == 1
-    assert "otter" in load_dataset(root).subjects
+    assert result.saved == 2  # robin was already a subject, still got 2 new images
+
+
+def test_add_images_target_total_fetches_only_shortfall(dataset):
+    """target_total tops a subject up to the total, fetching only what it lacks. The
+    fixture gives robin 3 images, so a target of 5 fetches 2."""
+    ds, root = dataset
+
+    async def fake_fetch(subjects, sources, limit, offset=0):
+        return {
+            s: {sources[0]: [{"source": sources[0], "url": f"https://x/{s}/{offset}.jpg"}]}
+            for s in subjects
+        }
+
+    def ok_download(url, dest, client=None):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"x")
+        return True
+
+    from sorty.core import pipeline
+
+    with mock.patch.object(pipeline, "fetch_all", fake_fetch), mock.patch.object(
+        pipeline, "download_file", ok_download
+    ):
+        result = generate.add_images(
+            root, ["robin"], ["duckduckgo"], 5, _progress(), target_total=True
+        )
+
+    assert result.saved == 2
 
 
 def test_set_subjects_saves_deduped_without_fetch(dataset):

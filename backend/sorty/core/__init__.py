@@ -21,7 +21,7 @@ from sorty.core.ids import slugify
 from sorty.core.images import DecodeError, open_rgb
 from sorty.core.models import Dataset, DatasetItem, ReviewStatus
 from sorty.core.paths import MANIFEST_DIR, has_manifest, manifest_path, meta_dir
-from sorty.core.pipeline import GenerateResult, add_images, generate, records_to_items
+from sorty.core.pipeline import GenerateResult, add_images, records_to_items
 from sorty.core.progress import OnProgress, Progress, Reporter
 from sorty.core.resolver import resolve_subjects
 from sorty.core.sources import (
@@ -40,7 +40,7 @@ __all__ = [
     "resolve_subjects",
     "REGISTRY", "SourceAdapter", "register_source", "source_names", "fetch_all",
     "download_file", "extension_for", "host_is_public",
-    "records_to_items", "generate", "add_images", "GenerateResult",
+    "records_to_items", "add_images", "GenerateResult",
     "find_exact_duplicates", "find_outliers", "apply_flags",
     "train", "infer", "crossval", "find_mismatches", "Prediction",
     "SUPPORTED_MODELS", "model_exists", "torch_available",

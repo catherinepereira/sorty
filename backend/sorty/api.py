@@ -89,11 +89,16 @@ class CreateBody(BaseModel):
 
 
 class GenerateBody(BaseModel):
+    # subjects to fetch for; empty or omitted means every class in the dataset
     subjects: list[str] | None = None
+    # optional prompt to resolve brand-new classes via the LLM before fetching
     prompt: str | None = None
-    count: int | None = None
+    # how many classes the prompt should resolve to
+    class_count: int | None = None
     sources: list[str]
-    limit: int = 20
+    # images per class: added on top when target_total is false, else the target total
+    count: int = 20
+    target_total: bool = False
 
 
 class LabelBody(BaseModel):
@@ -135,12 +140,6 @@ class ResolveBody(BaseModel):
     prompt: str
     count: int | None = None
     exclude: list[str] | None = None
-
-
-class AddImagesBody(BaseModel):
-    subjects: list[str] | None = None  # None or empty means every class
-    sources: list[str] | None = None
-    per_subject: int = 20
 
 
 class SourceBody(BaseModel):
@@ -345,35 +344,28 @@ def empty_bin(name: str) -> dict[str, int]:
 
 @app.post("/api/datasets/{name}/generate")
 def start_generate(name: str, body: GenerateBody) -> dict[str, str]:
+    """Fetch images for chosen classes, all classes, or classes resolved from a prompt.
+
+    A prompt resolves new classes via the LLM and merges them with any explicit ones.
+    With no subjects and no prompt, it targets every class already in the dataset. The
+    fetch always adds images not already downloaded, so it never silently no-ops.
+    """
     root = _root(name)
-    if body.subjects:
-        subjects = body.subjects
-    elif body.prompt:
+    subjects = list(body.subjects or [])
+    if body.prompt:
         try:
-            subjects = generate.resolve(body.prompt, count=body.count)
+            resolved = generate.resolve(body.prompt, count=body.class_count)
         except generate.OllamaUnavailable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-    else:
-        raise HTTPException(status_code=400, detail="Provide subjects or a prompt")
-
-    sources, limit = body.sources, body.limit
-
-    def work(p: JobProgress):
-        result = generate.generate(root, subjects, sources, limit, p)
-        return _result_view(result)
-
-    return {"job_id": jobs.submit(work)}
-
-
-@app.post("/api/datasets/{name}/add-images")
-def start_add_images(name: str, body: AddImagesBody) -> dict[str, str]:
-    root = _root(name)
-    subjects = body.subjects or []
-    sources = body.sources or []
-    per_subject = body.per_subject
+        for s in resolved:
+            if s not in subjects:
+                subjects.append(s)
 
     def work(p: JobProgress):
-        result = generate.add_images(root, subjects, sources, per_subject, p)
+        result = generate.add_images(
+            root, subjects, body.sources, body.count, p,
+            target_total=body.target_total,
+        )
         return _result_view(result)
 
     return {"job_id": jobs.submit(work)}

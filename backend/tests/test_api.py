@@ -127,10 +127,10 @@ def test_generate_job_runs_and_reports(with_dataset):
     from sorty import generate
 
     sentinel = GenerateResult(records=3, added=3, saved=2, failed=1, dropped=1)
-    with mock.patch.object(generate, "generate", return_value=sentinel):
+    with mock.patch.object(generate, "add_images", return_value=sentinel):
         r = with_dataset.post(
             "/api/datasets/birds/generate",
-            json={"subjects": ["owl"], "sources": ["duckduckgo"], "limit": 3},
+            json={"subjects": ["owl"], "sources": ["duckduckgo"], "count": 3},
         )
         job_id = r.json()["job_id"]
         body = _poll(with_dataset, job_id)
@@ -138,11 +138,25 @@ def test_generate_job_runs_and_reports(with_dataset):
     assert body["result"]["saved"] == 2 and body["result"]["dropped"] == 1
 
 
-def test_generate_needs_subjects_or_prompt(with_dataset):
-    r = with_dataset.post(
-        "/api/datasets/birds/generate", json={"sources": ["duckduckgo"]}
-    )
-    assert r.status_code == 400
+def test_generate_with_no_subjects_targets_all_classes(with_dataset):
+    """No subjects and no prompt means every class in the dataset, so this is a valid
+    fetch rather than a 400. The old skip-known path made an empty request a no-op."""
+    from sorty.core import GenerateResult
+    from sorty import generate
+
+    seen = {}
+
+    def fake_add(root, subjects, sources, count, progress, *, target_total=False):
+        seen["subjects"] = subjects
+        return GenerateResult(0, 0, 0, 0, 0)
+
+    with mock.patch.object(generate, "add_images", fake_add):
+        r = with_dataset.post(
+            "/api/datasets/birds/generate", json={"sources": ["duckduckgo"]}
+        )
+        _poll(with_dataset, r.json()["job_id"])
+    assert r.status_code == 200
+    assert seen["subjects"] == []  # empty means "all classes" downstream
 
 
 def test_dedup_exact_runs(with_dataset):
@@ -297,16 +311,26 @@ def test_summary_reports_per_class_and_sizes(with_dataset):
     assert s["image_sizes"]["max_width"] == 8
 
 
-def test_add_images_job(with_dataset):
+def test_generate_passes_target_total_through(with_dataset):
+    """target_total from the request reaches generate.add_images."""
     from sorty.core import GenerateResult
     from sorty import generate
 
-    sentinel = GenerateResult(records=2, added=2, saved=2, failed=0, dropped=0)
-    with mock.patch.object(generate, "add_images", return_value=sentinel):
+    seen = {}
+
+    def fake_add(root, subjects, sources, count, progress, *, target_total=False):
+        seen["count"] = count
+        seen["target_total"] = target_total
+        return GenerateResult(2, 2, 2, 0, 0)
+
+    with mock.patch.object(generate, "add_images", fake_add):
         r = with_dataset.post(
-            "/api/datasets/birds/add-images",
-            json={"subjects": ["robin"], "sources": ["duckduckgo"], "per_subject": 2},
+            "/api/datasets/birds/generate",
+            json={
+                "subjects": ["robin"], "sources": ["duckduckgo"],
+                "count": 5, "target_total": True,
+            },
         )
         body = _poll(with_dataset, r.json()["job_id"])
     assert body["status"] == "done"
-    assert body["result"]["saved"] == 2
+    assert seen == {"count": 5, "target_total": True}

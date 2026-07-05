@@ -52,8 +52,8 @@ export const api = {
     req<{ datasets: DatasetSummary[] }>("/api/datasets").then(
       (r) => r.datasets,
     ),
-  createDataset: (name: string, prompt: string) =>
-    post<{ name: string }>("/api/datasets", { name, prompt }),
+  createDataset: (name: string) =>
+    post<{ name: string }>("/api/datasets", { name }),
   getDataset: (name: string) => req<DatasetDetail>(`/api/datasets/${name}`),
   renameDataset: (name: string, newName: string) =>
     send<{ name: string }>("PATCH", `/api/datasets/${name}`, { name: newName }),
@@ -97,15 +97,12 @@ export const api = {
     body: {
       subjects?: string[];
       prompt?: string;
-      count?: number;
+      class_count?: number;
       sources: string[];
-      limit: number;
+      count: number;
+      target_total: boolean;
     },
   ) => post<{ job_id: string }>(`/api/datasets/${name}/generate`, body),
-  addImages: (
-    name: string,
-    body: { subjects?: string[]; sources?: string[]; per_subject: number },
-  ) => post<{ job_id: string }>(`/api/datasets/${name}/add-images`, body),
   dedup: (name: string, mode: "exact" | "outliers") =>
     post<{ job_id: string }>(`/api/datasets/${name}/dedup`, { mode }),
   train: (name: string, model: string, epochs: number) =>

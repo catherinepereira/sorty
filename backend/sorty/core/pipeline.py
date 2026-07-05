@@ -20,7 +20,7 @@ from sorty.core.progress import OnProgress, Reporter
 from sorty.core.sources import fetch_all
 from sorty.core.store import prune_missing, save_dataset
 
-# Seconds between downloads, a courtesy to the hosts we fetch from
+# Seconds between downloads, a courtesy to the source hosts
 DOWNLOAD_RATE_LIMIT = 0.1
 
 
@@ -61,45 +61,85 @@ def records_to_items(raw_results: dict) -> list[DatasetItem]:
 MAX_ADD_PAGES = 4
 
 
+# cushion added to each fetch window so dedup against known URLs still leaves enough
+PAGE_CUSHION = 10
+
+
 async def _gather_fresh(
-    subjects: list[str],
+    targets: dict[str, int],
     sources: list[str],
-    per_subject: int,
     known_urls: set[str],
 ) -> list[DatasetItem]:
-    """Collect up to per_subject new items per subject, paging until each fills or dries.
+    """Collect up to targets[subject] new items per subject, paging until full or dry.
 
-    One event loop drives every subject. Each page calls fetch_all for all still-hungry
-    subjects at once, so subjects and sources fan out concurrently rather than serially.
+    Each subject carries its own offset, advanced by how many records it actually
+    consumed, so a subject that dedups away most of a page does not skip the results it
+    never saw. A target of 0 or less is skipped. Every page fetches all still-hungry
+    subjects concurrently.
     """
     seen = set(known_urls)
-    found: dict[str, list[DatasetItem]] = {s: [] for s in subjects}
-    hungry = list(subjects)
+    found: dict[str, list[DatasetItem]] = {s: [] for s in targets}
+    offsets: dict[str, int] = {s: 0 for s in targets}
+    hungry = [s for s, want in targets.items() if want > 0]
 
     for page in range(MAX_ADD_PAGES + 1):
         if not hungry:
             break
-        offset = page * per_subject
-        raw = await fetch_all(hungry, sources, per_subject, offset)
+        # each subject fetches from its own offset, sized to what it still needs
+        wants = {s: targets[s] - len(found[s]) + PAGE_CUSHION for s in hungry}
+        raw = await _fetch_at_offsets(hungry, sources, wants, offsets)
         still_hungry = []
         for subject in hungry:
+            want = targets[subject]
             page_items = records_to_items({subject: raw.get(subject, {})})
-            page_new = [i for i in page_items if i.source_url not in seen]
-            if not page_new and page > 0:
-                continue  # this subject is dry, drop it from future pages
-            for item in page_new:
-                if len(found[subject]) >= per_subject:
+            offsets[subject] += len(page_items)
+            if not page_items:
+                continue  # the source returned nothing, this subject is exhausted
+            for item in page_items:
+                if len(found[subject]) >= want:
                     break
+                if item.source_url in seen:
+                    continue
                 seen.add(item.source_url)
                 found[subject].append(item)
-            if len(found[subject]) < per_subject:
+            if len(found[subject]) < want:
                 still_hungry.append(subject)
         hungry = still_hungry
 
     fresh: list[DatasetItem] = []
-    for subject in subjects:
+    for subject in targets:
         fresh.extend(found[subject])
     return fresh
+
+
+async def _fetch_at_offsets(
+    subjects: list[str],
+    sources: list[str],
+    wants: dict[str, int],
+    offsets: dict[str, int],
+) -> dict[str, dict[str, list[dict]]]:
+    """fetch_all, but each subject uses its own limit and offset.
+
+    fetch_all shares one limit and offset across subjects, which is wrong once subjects
+    page independently. This fans out one fetch_all per subject concurrently and merges
+    the nested results.
+    """
+    results = await asyncio.gather(
+        *(fetch_all([s], sources, wants[s], offsets[s]) for s in subjects)
+    )
+    merged: dict[str, dict[str, list[dict]]] = {}
+    for raw in results:
+        merged.update(raw)
+    return merged
+
+
+def _live_count(ds: Dataset, subject: str) -> int:
+    """Manifest items for a subject that are still live (not in the recycle bin)."""
+    label = slugify(subject)
+    return sum(
+        1 for i in ds.items
+        if i.deleted_at is None and (i.subject == subject or i.label == label)
+    )
 
 
 def _download_new(
@@ -129,16 +169,19 @@ def add_images(
     dataset_root: Path,
     subjects: list[str],
     sources: list[str],
-    per_subject: int,
+    count: int,
     *,
+    target_total: bool = False,
     on_progress: OnProgress = None,
     keep_on_prune=None,
 ) -> GenerateResult:
-    """Add up to per_subject new images for subjects already in the dataset.
+    """Fetch images for the given subjects, adding any not already in the dataset.
 
-    Unlike generate, this does not skip known subjects. It pages through each source with
-    a rising offset, keeps only URLs not already in ds, and downloads until per_subject
-    new images land or the sources run dry. subjects not in ds are added first.
+    count means "add up to count new images per subject" by default. With target_total,
+    it means "bring each subject up to count total", fetching only the shortfall and
+    skipping subjects already at or above count. Either way it pages each source with a
+    rising offset, keeps only URLs not already in ds, and stops when full or the sources
+    run dry. Subjects not in ds are added first.
     """
     reporter = Reporter(on_progress)
     for s in subjects:
@@ -150,75 +193,22 @@ def add_images(
     for subject in subjects:
         (dataset_root / slugify(subject)).mkdir(parents=True, exist_ok=True)
 
+    if target_total:
+        targets = {s: max(0, count - _live_count(ds, s)) for s in subjects}
+    else:
+        targets = {s: count for s in subjects}
+
+    # binned items keep their URL here so a rejected image is never re-suggested. They
+    # are excluded from _live_count, so target_total tops up past them. Emptying the bin
+    # drops the item, freeing the URL to be fetched again
     known_urls = {i.source_url for i in ds.items}
     reporter.set_message("Searching sources for more images")
-    fresh = asyncio.run(
-        _gather_fresh(subjects, sources, per_subject, known_urls)
-    )
+    fresh = asyncio.run(_gather_fresh(targets, sources, known_urls))
 
     records = len(fresh)
     reporter.start(max(records, 1), "Downloading new images")
     saved, failed = _download_new(ds, dataset_root, fresh, reporter, records)
     added = saved + failed
-    dropped = prune_missing(ds, dataset_root, keep=keep_on_prune)
-    save_dataset(ds, dataset_root)
-    return GenerateResult(records, added, saved, failed, dropped)
-
-
-def generate(
-    ds: Dataset,
-    dataset_root: Path,
-    subjects: list[str],
-    sources: list[str],
-    limit: int,
-    *,
-    on_progress: OnProgress = None,
-    keep_on_prune=None,
-) -> GenerateResult:
-    """Fetch and download images for subjects into ds, merging into its manifest.
-
-    Only subjects not already in ds are fetched. Items whose download fails are pruned
-    so the manifest lists only images on disk. keep_on_prune retains items whose file is
-    intentionally elsewhere (a recycle bin). Saves the dataset before returning.
-    """
-    reporter = Reporter(on_progress)
-
-    new_subjects = [s for s in subjects if s not in ds.subjects]
-    ds.subjects += new_subjects
-    for s in sources:
-        if s not in ds.sources:
-            ds.sources.append(s)
-    for subject in new_subjects:
-        (dataset_root / slugify(subject)).mkdir(parents=True, exist_ok=True)
-
-    if not new_subjects:
-        return GenerateResult(0, 0, 0, 0, 0)
-
-    # fetch every subject in one event loop, so fetch_all fans them out concurrently
-    reporter.start(1, "Searching sources")
-    raw_results = asyncio.run(fetch_all(new_subjects, sources, limit))
-    reporter.advance(f"Searched {len(new_subjects)} subjects")
-
-    records = sum(
-        len(recs) for src_map in raw_results.values() for recs in src_map.values()
-    )
-    new_items = records_to_items(raw_results)
-    added_ids = set(ds.add_items(new_items))
-    added = len(added_ids)
-
-    # only the newly added items need downloading, existing ones are already on disk
-    pending = [i for i in ds.items if i.item_id in added_ids]
-    reporter.start(max(len(pending), 1), "Downloading images")
-    saved = failed = 0
-    with httpx.Client(timeout=DOWNLOAD_TIMEOUT) as client:
-        for item in pending:
-            if download_file(item.source_url, dataset_root / item.local_path, client=client):
-                saved += 1
-            else:
-                failed += 1
-            reporter.advance(f"Saved {saved}/{len(pending)}")
-            time.sleep(DOWNLOAD_RATE_LIMIT)
-
     dropped = prune_missing(ds, dataset_root, keep=keep_on_prune)
     save_dataset(ds, dataset_root)
     return GenerateResult(records, added, saved, failed, dropped)

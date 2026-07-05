@@ -122,3 +122,50 @@ def test_add_images_skips_already_known_urls(tmp_path: Path):
     # the source has nothing new, so the second run adds zero
     assert result.saved == 0
     assert len({i.source_url for i in ds.items}) == 3
+
+
+def test_mixed_targets_do_not_starve_a_small_want_subject(tmp_path: Path):
+    """With per-subject targets, a subject whose early results are all duplicates still
+    reaches its target from deeper offsets, and does not have its offset stepped by
+    another subject's larger want."""
+
+    async def paged_fetch(subjects, sources, limit, offset=0):
+        s = subjects[0]
+        return {
+            s: {"web": [{"source": "web", "url": f"https://x/{s}/{offset + i}.jpg"} for i in range(limit)]}
+        }
+
+    # subject A's first 40 URLs are already downloaded, B starts empty
+    known = {f"https://x/A/{i}.jpg" for i in range(40)}
+    targets = {"A": 3, "B": 3}
+    with mock.patch.object(pipeline, "fetch_all", paged_fetch):
+        fresh = asyncio.run(pipeline._gather_fresh(targets, ["web"], known))
+
+    from collections import Counter
+
+    by = Counter(i.subject for i in fresh)
+    assert by["A"] == 3 and by["B"] == 3
+
+
+def test_add_images_target_total_tops_up_to_the_total(tmp_path: Path):
+    """target_total fetches only the shortfall: a class with 2 images, target 5, gets 3."""
+    ds, root = _fresh(tmp_path)
+
+    async def paged_fetch(subjects, sources, limit, offset=0):
+        s = subjects[0]
+        return {s: {"web": [{"source": "web", "url": f"https://x/{s}/{offset + i}.jpg"} for i in range(limit)]}}
+
+    def ok_download(url, dest, client=None):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"x")
+        return True
+
+    with mock.patch.object(pipeline, "fetch_all", paged_fetch), mock.patch.object(
+        pipeline, "download_file", ok_download
+    ):
+        pipeline.add_images(ds, root, ["Otter"], ["web"], 2)  # seed 2
+        result = pipeline.add_images(ds, root, ["Otter"], ["web"], 5, target_total=True)
+
+    assert result.saved == 3
+    live = [i for i in ds.items if i.deleted_at is None]
+    assert len(live) == 5

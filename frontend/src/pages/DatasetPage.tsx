@@ -8,7 +8,6 @@ import { Header } from "../components/Header";
 import { ImageCard } from "../components/ImageCard";
 import { AnnotateDialog } from "../components/AnnotateDialog";
 import { GenerateDialog } from "../components/GenerateDialog";
-import { AddImagesDialog } from "../components/AddImagesDialog";
 import { AddClassesDialog } from "../components/AddClassesDialog";
 import { DeleteSourceDialog } from "../components/DeleteSourceDialog";
 import { RenameDialog } from "../components/RenameDialog";
@@ -20,7 +19,6 @@ import type { Item, JobState, Prediction } from "../types";
 
 type DialogName =
   | "generate"
-  | "addImages"
   | "addClasses"
   | "deleteSource"
   | "rename"
@@ -184,14 +182,6 @@ export function DatasetPage() {
                   </DropdownItem>
                   <DropdownItem
                     onClick={() => {
-                      setDialog("addImages");
-                      close();
-                    }}
-                  >
-                    Add more images
-                  </DropdownItem>
-                  <DropdownItem
-                    onClick={() => {
                       setDialog("summary");
                       close();
                     }}
@@ -346,14 +336,9 @@ export function DatasetPage() {
       />
       <GenerateDialog
         open={dialog === "generate"}
-        onClose={() => setDialog(null)}
-        onStart={(body) => runJob(() => api.generate(name, body))}
-      />
-      <AddImagesDialog
-        open={dialog === "addImages"}
         classes={detail.subjects}
         onClose={() => setDialog(null)}
-        onStart={(body) => runJob(() => api.addImages(name, body))}
+        onStart={(body) => runJob(() => api.generate(name, body))}
       />
       <AddClassesDialog
         open={dialog === "addClasses"}
