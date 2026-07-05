@@ -48,9 +48,11 @@ export function BinPage() {
   return (
     <>
       <Header
+        title={`Recycle Bin ${name}`}
         subtitle={`${items.length} in the recycle bin`}
         mood="trash"
         backTo={`/d/${name}`}
+        backLabel={`Back to ${name}`}
         actions={
           items.length > 0 && (
             <button

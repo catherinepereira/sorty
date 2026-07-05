@@ -25,7 +25,7 @@ export function Modal({
       onClick={onClose}
     >
       <div
-        className={`w-full ${width} border-border bg-card rounded-xl border p-6 shadow-xl`}
+        className={`relative w-full ${width} border-border bg-card rounded-xl border p-6 shadow-xl`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

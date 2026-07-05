@@ -26,7 +26,15 @@ export function useJob(onDone?: (job: JobState) => void) {
     (jobId: string) => {
       stop();
       const tick = async () => {
-        const state = await api.job(jobId);
+        let state: JobState;
+        try {
+          state = await api.job(jobId);
+        } catch {
+          // the job is gone (server restarted or id expired), stop polling silently
+          stop();
+          setJob(null);
+          return;
+        }
         setJob(state);
         if (state.status !== "running") {
           stop();

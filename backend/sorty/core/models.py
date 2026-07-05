@@ -30,8 +30,6 @@ class DatasetItem(BaseModel):
     # the original title the source gave the image, empty for manual or untitled images
     title: str = ""
     review_status: ReviewStatus = ReviewStatus.pending
-    # user-written note, kept out of the derived fields since it can't be recomputed
-    note: str = ""
     # deleted_at is set when an item is in the recycle bin, absent otherwise
     deleted_at: float | None = None
 

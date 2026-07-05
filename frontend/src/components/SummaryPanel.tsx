@@ -4,6 +4,7 @@ import type { DatasetSummaryStats } from "../types";
 import { useConfirm } from "../hooks/useConfirm";
 import { MergeIcon, PencilIcon, SparklesIcon, TrashIcon } from "./icons";
 import { GenerateClassesDialog } from "./GenerateClassesDialog";
+import { Select } from "./Select";
 
 function humanBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -329,18 +330,13 @@ function ClassManager({
           <span>
             Merge {merging.size} class{merging.size === 1 ? "" : "es"} into
           </span>
-          <select
-            className="border-border rounded-lg border px-2 py-1"
+          <Select
+            className="w-40"
             value={target}
-            onChange={(e) => setTarget(e.target.value)}
-          >
-            <option value="">Choose target</option>
-            {names.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
+            placeholder="Choose target"
+            options={names.map((n) => ({ value: n, label: n }))}
+            onChange={setTarget}
+          />
           <button
             onClick={runMerge}
             disabled={busy || !target || merging.size < 1 || (merging.size === 1 && merging.has(target))}

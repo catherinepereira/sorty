@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 export type Mood = "idle" | "working" | "happy" | "trash";
 
 const PRIMARY = "#5b8def";
@@ -68,6 +70,9 @@ export function Mascot({
   mood?: Mood;
   size?: number;
 }) {
+  // bump a key on click to restart the one-shot blink animation
+  const [blink, setBlink] = useState(0);
+
   return (
     <svg
       width={size}
@@ -75,7 +80,8 @@ export function Mascot({
       viewBox="0 0 64 64"
       role="img"
       aria-label={`Sorty robot (${mood})`}
-      className={mood === "idle" ? "animate-[bob_3s_ease-in-out_infinite]" : ""}
+      onClick={() => setBlink((b) => b + 1)}
+      className="cursor-pointer"
     >
       <line
         x1="32"
@@ -89,7 +95,13 @@ export function Mascot({
       <circle cx="32" cy="5" r="3" fill={ACCENT} />
       <rect x="12" y="14" width="40" height="34" rx="12" fill={PRIMARY} />
       <rect x="17" y="19" width="30" height="20" rx="9" fill="#ffffff" />
-      <Eyes mood={mood} />
+      <g
+        key={blink}
+        className={blink ? "animate-[blink_0.3s_ease-in-out]" : ""}
+        style={{ transformOrigin: "32px 27px" }}
+      >
+        <Eyes mood={mood} />
+      </g>
       <rect x="8" y="26" width="4" height="12" rx="2" fill={PRIMARY} />
       <rect x="52" y="26" width="4" height="12" rx="2" fill={PRIMARY} />
     </svg>

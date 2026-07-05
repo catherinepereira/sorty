@@ -169,3 +169,39 @@ def test_add_images_target_total_tops_up_to_the_total(tmp_path: Path):
     assert result.saved == 3
     live = [i for i in ds.items if i.deleted_at is None]
     assert len(live) == 5
+
+
+def test_progress_notes_failed_downloads(tmp_path: Path):
+    """When a download fails, the progress message appends the running failure count so
+    the saved figure and the attempted figure no longer look out of sync."""
+    ds, root = _fresh(tmp_path)
+
+    async def paged_fetch(subjects, sources, limit, offset=0):
+        s = subjects[0]
+        return {s: {"web": [{"source": "web", "url": f"https://x/{s}/{offset + i}.jpg"} for i in range(limit)]}}
+
+    # every other download fails
+    calls = {"n": 0}
+
+    def flaky_download(url, dest, client=None):
+        calls["n"] += 1
+        if calls["n"] % 2 == 0:
+            return False
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"x")
+        return True
+
+    messages: list[str] = []
+
+    def on_progress(p):
+        messages.append(p.message)
+
+    with mock.patch.object(pipeline, "fetch_all", paged_fetch), mock.patch.object(
+        pipeline, "download_file", flaky_download
+    ):
+        result = pipeline.add_images(
+            ds, root, ["Otter"], ["web"], 4, on_progress=on_progress
+        )
+
+    assert result.failed > 0
+    assert any("failed to download" in m for m in messages)

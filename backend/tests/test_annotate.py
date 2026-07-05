@@ -13,13 +13,14 @@ def test_set_status(dataset):
     assert item.review_status == ReviewStatus.valid
 
 
-def test_set_note_add_and_clear(dataset):
+def test_set_status_many(dataset):
     ds, root = dataset
-    item = ds.items[0]
-    annotate.set_note(ds, item.item_id, "  blurry  ")
-    assert item.note == "blurry"
-    annotate.set_note(ds, item.item_id, "   ")
-    assert item.note == ""
+    ids = [i.item_id for i in ds.items[:2]]
+    changed = annotate.set_status_many(ds, ids, ReviewStatus.valid)
+    assert changed == 2
+    assert all(
+        i.review_status == ReviewStatus.valid for i in ds.items if i.item_id in ids
+    )
 
 
 def test_relabel_moves_file_and_updates_manifest(dataset):

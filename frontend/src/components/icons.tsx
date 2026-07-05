@@ -116,6 +116,64 @@ export function RefreshIcon(p: IconProps) {
   );
 }
 
+export function HomeIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M4 11l8-7 8 7" />
+      <path d="M6 10v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9" />
+    </Svg>
+  );
+}
+
+export function PlusIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M12 5v14M5 12h14" />
+    </Svg>
+  );
+}
+
+export function SunIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4" />
+    </Svg>
+  );
+}
+
+export function MoonIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M20 14.5A8 8 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5z" />
+    </Svg>
+  );
+}
+
+export function CaretIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M6 9l6 6 6-6" />
+    </Svg>
+  );
+}
+
+export function BackIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M15 6l-6 6 6 6" />
+    </Svg>
+  );
+}
+
+export function CloseIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M6 6l12 12M18 6L6 18" />
+    </Svg>
+  );
+}
+
 export function ChevronIcon({ open, className }: IconProps & { open: boolean }) {
   return (
     <Svg className={className ?? "h-4 w-4"}>

@@ -5,7 +5,6 @@ export interface Item {
   label: string;
   subject: string;
   status: Status;
-  note: string;
   url: string;
   binned: boolean;
   source: string;

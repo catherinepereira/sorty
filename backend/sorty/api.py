@@ -18,7 +18,7 @@ from sorty.core import (
     Dataset,
     DatasetItem,
     ReviewStatus,
-    find_exact_duplicates,
+    find_duplicate_groups,
     find_outliers,
     has_manifest,
     load_dataset,
@@ -44,7 +44,6 @@ def _item_view(item: DatasetItem, root: Path) -> dict[str, Any]:
         "label": item.label,
         "subject": item.subject or item.label,
         "status": item.review_status.value,
-        "note": item.note,
         "url": media_url(root / item.local_path),
         "binned": is_binned(item),
         "source": item.source,
@@ -114,8 +113,9 @@ class StatusBody(BaseModel):
     status: ReviewStatus
 
 
-class NoteBody(BaseModel):
-    note: str
+class StatusManyBody(BaseModel):
+    item_ids: list[str]
+    status: ReviewStatus
 
 
 class IdsBody(BaseModel):
@@ -372,15 +372,12 @@ def set_status(name: str, item_id: str, body: StatusBody) -> dict[str, Any]:
     return {"item": _item_view(annotate._find(ds, item_id), root)}
 
 
-@app.post("/api/datasets/{name}/items/{item_id}/note")
-def set_note(name: str, item_id: str, body: NoteBody) -> dict[str, Any]:
+@app.post("/api/datasets/{name}/set-status")
+def set_status_many(name: str, body: StatusManyBody) -> dict[str, int]:
     ds, root = _load(name)
-    try:
-        annotate.set_note(ds, item_id, body.note)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="No such item")
+    changed = annotate.set_status_many(ds, body.item_ids, body.status)
     save_dataset(ds, root)
-    return {"item": _item_view(annotate._find(ds, item_id), root)}
+    return {"changed": changed}
 
 
 # ----- recycle bin -----
@@ -447,13 +444,13 @@ def _result_view(result) -> dict[str, int]:
     }
 
 
-def _bin_flagged(ds: Dataset, root: Path, flagged: list[DatasetItem]) -> int:
-    """Route flagged items to the restorable bin instead of a hard invalid mark."""
-    return recyclebin.delete_to_bin(ds, root, [i.item_id for i in flagged])
-
-
 @app.post("/api/datasets/{name}/dedup")
 def start_dedup(name: str, body: DedupBody) -> dict[str, str]:
+    """Flag likely-bad images without touching them, for review in the grid.
+
+    Returns the flagged item ids. Nothing is binned, the frontend filters the grid to
+    the flagged set so the user decides what to delete.
+    """
     root = _root(name)
     if body.mode not in ("exact", "outliers"):
         raise HTTPException(status_code=400, detail="mode must be exact or outliers")
@@ -465,13 +462,15 @@ def start_dedup(name: str, body: DedupBody) -> dict[str, str]:
         live = [i for i in ds.items if not is_binned(i)]
         p.sync(1, 0, f"Scanning for {body.mode}")
         if body.mode == "exact":
-            flagged = find_exact_duplicates(live, root)
-        else:
-            flagged = find_outliers(live, root)
-        binned = _bin_flagged(ds, root, flagged)
-        save_dataset(ds, root)
-        p.sync(1, 1, f"Binned {binned}")
-        return {"binned": binned}
+            # keep the group structure so the grid can put each duplicate set on its own
+            # row, plus a flat id list for the filter that hides everything else
+            groups = [[i.item_id for i in g] for g in find_duplicate_groups(live, root)]
+            ids = [item_id for g in groups for item_id in g]
+            p.sync(1, 1, f"Flagged {len(ids)}")
+            return {"flagged": ids, "groups": groups}
+        ids = [i.item_id for i in find_outliers(live, root)]
+        p.sync(1, 1, f"Flagged {len(ids)}")
+        return {"flagged": ids}
 
     return {"job_id": jobs.submit(work)}
 

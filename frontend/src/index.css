@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-bg: #f6f8fc;
   --color-card: #ffffff;
@@ -11,6 +13,7 @@
   --color-muted: #94a3b8;
   --color-good: #34d399;
   --color-bad: #f87171;
+  --color-warn: #d97706;
   --color-pending: #cbd5e1;
 
   --radius-md: 10px;
@@ -20,6 +23,20 @@
   --font-sans: "Space Grotesk", system-ui, sans-serif;
 }
 
+/* Dark palette borrowed from the explorablecv demos: zinc surfaces, blue accent */
+html.dark {
+  color-scheme: dark;
+  --color-bg: #18181b;
+  --color-card: #27272a;
+  --color-border: #3f3f46;
+  --color-primary: #3b82f6;
+  --color-primary-soft: #1e2a4a;
+  --color-accent: #ffb454;
+  --color-text: #f4f4f5;
+  --color-muted: #a1a1aa;
+  --color-pending: #52525b;
+}
+
 body {
   margin: 0;
   background: var(--color-bg);
@@ -27,13 +44,14 @@ body {
   font-family: var(--font-sans);
 }
 
-@keyframes bob {
+@keyframes blink {
   0%,
   100% {
-    transform: translateY(0);
+    transform: scaleY(1);
   }
-  50% {
-    transform: translateY(-4px);
+  45%,
+  55% {
+    transform: scaleY(0.1);
   }
 }
 

@@ -36,6 +36,7 @@ export const ImageCard = memo(function ImageCard({
         checked={selected}
         onChange={() => onToggle(item.id)}
         onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
         className="accent-primary absolute top-2 left-2 z-[1] h-5 w-5 cursor-pointer"
         aria-label={`Select ${item.subject}`}
       />
@@ -44,6 +45,7 @@ export const ImageCard = memo(function ImageCard({
           e.stopPropagation();
           onDelete(item.id);
         }}
+        onMouseDown={(e) => e.stopPropagation()}
         className="bg-bad/90 absolute top-2 right-2 z-[1] flex h-6 w-6 items-center justify-center rounded-full text-sm text-white opacity-0 transition group-hover:opacity-100"
         aria-label={`Delete ${item.subject} to bin`}
         title="Delete to bin"
@@ -64,11 +66,6 @@ export const ImageCard = memo(function ImageCard({
         </span>
         <StatusChip status={item.status} />
       </div>
-      {item.note && (
-        <div className="border-border text-muted border-t px-2 py-1 text-xs">
-          {item.note}
-        </div>
-      )}
     </div>
   );
 });

@@ -159,7 +159,8 @@ def _download_new(
                 saved += 1
             else:
                 failed += 1
-            reporter.advance(f"Saved {saved}/{total_target}")
+            note = f" ({failed} failed to download)" if failed else ""
+            reporter.advance(f"Saved {saved}/{total_target}{note}")
             time.sleep(DOWNLOAD_RATE_LIMIT)
     return saved, failed
 

@@ -93,12 +93,15 @@ export const api = {
     post<{ item: Item }>(`/api/datasets/${name}/items/${id}/status`, {
       status,
     }),
-  setNote: (name: string, id: string, note: string) =>
-    post<{ item: Item }>(`/api/datasets/${name}/items/${id}/note`, { note }),
   moveToClass: (name: string, ids: string[], subject: string) =>
     post<{ moved: number }>(`/api/datasets/${name}/move-to-class`, {
       item_ids: ids,
       subject,
+    }),
+  setStatusMany: (name: string, ids: string[], status: Status) =>
+    post<{ changed: number }>(`/api/datasets/${name}/set-status`, {
+      item_ids: ids,
+      status,
     }),
 
   del: (name: string, ids: string[]) =>

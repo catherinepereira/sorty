@@ -1,4 +1,5 @@
 import type { Status } from "../types";
+import { statusLabel } from "../status";
 
 const STYLES: Record<Status, string> = {
   valid: "bg-good/15 text-good",
@@ -9,9 +10,9 @@ const STYLES: Record<Status, string> = {
 export function StatusChip({ status }: { status: Status }) {
   return (
     <span
-      className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${STYLES[status]}`}
+      className={`rounded-full px-2 py-0.5 text-xs font-medium ${STYLES[status]}`}
     >
-      {status}
+      {statusLabel(status)}
     </span>
   );
 }

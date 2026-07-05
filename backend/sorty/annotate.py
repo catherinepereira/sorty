@@ -1,4 +1,4 @@
-"""Per-image annotation: status, note, and relabel.
+"""Per-image annotation: status and relabel.
 
 These are thin writes over a DatasetItem. Relabeling also moves the file into the new
 label's folder and rewrites local_path so disk and manifest stay in step with the
@@ -26,9 +26,17 @@ def set_status(ds: Dataset, item_id: str, status: ReviewStatus) -> None:
     ds.touch()
 
 
-def set_note(ds: Dataset, item_id: str, note: str) -> None:
-    _find(ds, item_id).note = note.strip()
-    ds.touch()
+def set_status_many(ds: Dataset, item_ids: list[str], status: ReviewStatus) -> int:
+    """Set the review status on many items at once. Returns how many were changed."""
+    wanted = set(item_ids)
+    changed = 0
+    for item in ds.items:
+        if item.item_id in wanted:
+            item.review_status = status
+            changed += 1
+    if changed:
+        ds.touch()
+    return changed
 
 
 def set_label(ds: Dataset, root: Path, item_id: str, new_subject: str) -> None:

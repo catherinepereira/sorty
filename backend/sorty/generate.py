@@ -16,6 +16,7 @@ from sorty.core import (
     load_dataset,
     resolve_subjects,
     save_dataset,
+    slugify,
     source_names,
 )
 from sorty.core import add_images as core_add_images
@@ -93,7 +94,11 @@ def add_images(
 
 
 def set_subjects(root: Path, subjects: list[str]) -> list[str]:
-    """Save a class list on the dataset without fetching images, deduped in order."""
+    """Save a class list on the dataset without fetching images, deduped in order.
+
+    Each class gets an empty folder on disk so it exists before any image is fetched,
+    and the summary counts it as a class with zero images rather than dropping it.
+    """
     ds = load_dataset(root)
     seen: set[str] = set()
     ordered: list[str] = []
@@ -103,5 +108,7 @@ def set_subjects(root: Path, subjects: list[str]) -> list[str]:
             seen.add(key)
             ordered.append(s)
     ds.subjects = ordered
+    for s in ordered:
+        (root / slugify(s)).mkdir(parents=True, exist_ok=True)
     save_dataset(ds, root)
     return ordered

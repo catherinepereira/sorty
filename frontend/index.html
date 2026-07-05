@@ -11,6 +11,18 @@
       rel="stylesheet"
     />
     <title>Sorty</title>
+    <script>
+      // set the theme before React mounts so there's no light flash on a dark load
+      (function () {
+        try {
+          var saved = localStorage.getItem("theme");
+          var dark =
+            saved === "dark" ||
+            (!saved && matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

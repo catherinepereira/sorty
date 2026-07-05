@@ -61,6 +61,29 @@ def find_exact_duplicates(items: list[DatasetItem], dataset_root: Path) -> list[
     return flagged
 
 
+def find_duplicate_groups(
+    items: list[DatasetItem], dataset_root: Path
+) -> list[list[DatasetItem]]:
+    """Group pixel-identical images within each label, returning only groups of 2+.
+
+    Unlike find_exact_duplicates, which flags all but the first copy, this returns every
+    member of each duplicate set so they can be reviewed side by side. Groups keep the
+    items' original order.
+    """
+    groups: list[list[DatasetItem]] = []
+    for label_items in _group_by_label(items).values():
+        by_hash: dict[str, list[DatasetItem]] = {}
+        for item in label_items:
+            h = _pixel_hash(dataset_root / item.local_path)
+            if h is None:
+                continue
+            by_hash.setdefault(h, []).append(item)
+        for members in by_hash.values():
+            if len(members) >= 2:
+                groups.append(members)
+    return groups
+
+
 def _load_embedder():
     """MobileNetV2 feature extractor and its preprocessing transform (needs torch)."""
     import torch

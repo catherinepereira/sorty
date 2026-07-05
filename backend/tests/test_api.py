@@ -135,16 +135,23 @@ def test_relabel_moves_item(with_dataset):
     assert r.json()["item"]["subject"] == "Barn Owl"
 
 
-def test_set_status_and_note(with_dataset):
+def test_set_status(with_dataset):
     victim = with_dataset.get("/api/datasets/birds").json()["items"][0]["id"]
     r = with_dataset.post(
         f"/api/datasets/birds/items/{victim}/status", json={"status": "valid"}
     )
     assert r.json()["item"]["status"] == "valid"
+
+
+def test_set_status_many(with_dataset):
+    ids = [i["id"] for i in with_dataset.get("/api/datasets/birds").json()["items"]]
     r = with_dataset.post(
-        f"/api/datasets/birds/items/{victim}/note", json={"note": "  keep  "}
+        "/api/datasets/birds/set-status",
+        json={"item_ids": ids, "status": "valid"},
     )
-    assert r.json()["item"]["note"] == "keep"
+    assert r.json() == {"changed": len(ids)}
+    after = with_dataset.get("/api/datasets/birds").json()["items"]
+    assert all(i["status"] == "valid" for i in after)
 
 
 def test_annotate_missing_item_404(with_dataset):
@@ -191,11 +198,18 @@ def test_generate_with_no_subjects_targets_all_classes(with_dataset):
     assert seen["subjects"] == []  # empty means "all classes" downstream
 
 
-def test_dedup_exact_runs(with_dataset):
+def test_dedup_exact_flags_without_binning(with_dataset):
+    before = with_dataset.get("/api/datasets/birds").json()["stats"]["total"]
     r = with_dataset.post("/api/datasets/birds/dedup", json={"mode": "exact"})
     body = _poll(with_dataset, r.json()["job_id"])
     assert body["status"] == "done"
-    assert "binned" in body["result"]
+    # dedup only flags, it must not bin anything, so the live total is unchanged
+    assert isinstance(body["result"]["flagged"], list)
+    # exact mode also returns the group structure, and flattening it matches flagged
+    groups = body["result"]["groups"]
+    assert [item_id for g in groups for item_id in g] == body["result"]["flagged"]
+    after = with_dataset.get("/api/datasets/birds").json()["stats"]["total"]
+    assert after == before
 
 
 def test_dedup_rejects_bad_mode(with_dataset):

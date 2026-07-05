@@ -15,7 +15,12 @@ from sorty.core.classify import (
     torch_available,
     train,
 )
-from sorty.core.clean import apply_flags, find_exact_duplicates, find_outliers
+from sorty.core.clean import (
+    apply_flags,
+    find_duplicate_groups,
+    find_exact_duplicates,
+    find_outliers,
+)
 from sorty.core.download import download_file, extension_for, host_is_public
 from sorty.core.ids import slugify
 from sorty.core.images import DecodeError, open_rgb
@@ -41,7 +46,7 @@ __all__ = [
     "REGISTRY", "SourceAdapter", "register_source", "source_names", "fetch_all",
     "download_file", "extension_for", "host_is_public",
     "records_to_items", "add_images", "GenerateResult",
-    "find_exact_duplicates", "find_outliers", "apply_flags",
+    "find_exact_duplicates", "find_duplicate_groups", "find_outliers", "apply_flags",
     "train", "infer", "crossval", "find_mismatches", "Prediction",
     "SUPPORTED_MODELS", "model_exists", "torch_available",
     "DecodeError", "open_rgb",

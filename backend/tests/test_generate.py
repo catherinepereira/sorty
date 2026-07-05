@@ -119,6 +119,16 @@ def test_set_subjects_saves_deduped_without_fetch(dataset):
     assert load_dataset(root).subjects == ["Owl", "Hawk"]
 
 
+def test_set_subjects_creates_empty_folders(dataset):
+    """A new class exists as an empty folder on disk even before any image is fetched."""
+    from sorty.core import slugify
+
+    _, root = dataset
+    generate.set_subjects(root, ["Owl", "Snowy Egret"])
+    assert (root / slugify("Owl")).is_dir()
+    assert (root / slugify("Snowy Egret")).is_dir()
+
+
 def test_add_images_defaults_to_all_subjects(dataset):
     """add_images with no subjects targets every subject already in the dataset."""
     _, root = dataset

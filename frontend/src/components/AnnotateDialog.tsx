@@ -1,27 +1,36 @@
 import { useEffect, useState } from "react";
 import { Modal } from "./Modal";
+import { Select } from "./Select";
 import { api } from "../api";
 import { useDataset } from "../stores/dataset";
 import type { Item, Status } from "../types";
+import { statusLabel } from "../status";
+import { CloseIcon, TrashIcon } from "./icons";
 
 const STATUSES: Status[] = ["pending", "valid"];
+
+// active-state colors per status, so Valid reads green like the chip and grid badges do
+const ACTIVE_STATUS: Record<Status, string> = {
+  valid: "bg-good text-white",
+  pending: "bg-primary text-white",
+  invalid: "bg-bad text-white",
+};
 
 export function AnnotateDialog({
   item,
   datasetName,
+  classes,
   onClose,
   onDelete,
 }: {
   item: Item | null;
   datasetName: string;
+  classes: string[];
   onClose: () => void;
   onDelete: (id: string) => void;
 }) {
   const replaceItem = useDataset((s) => s.replaceItem);
   const [current, setCurrent] = useState<Item | null>(item);
-  const [subject, setSubject] = useState("");
-  const [note, setNote] = useState("");
-  const [saving, setSaving] = useState(false);
   const [dims, setDims] = useState<{
     width: number | null;
     height: number | null;
@@ -31,8 +40,6 @@ export function AnnotateDialog({
   useEffect(() => {
     setCurrent(item);
     if (item) {
-      setSubject(item.subject);
-      setNote(item.note);
       setDims(null);
       api
         .getItem(datasetName, item.id)
@@ -51,43 +58,59 @@ export function AnnotateDialog({
     replaceItem(updated);
   };
 
-  const save = async () => {
-    setSaving(true);
-    try {
-      if (subject.trim() && subject.trim() !== current.subject) {
-        applied((await api.setLabel(datasetName, current.id, subject.trim())).item);
-      }
-      if (note !== current.note) {
-        applied((await api.setNote(datasetName, current.id, note)).item);
-      }
-      onClose();
-    } finally {
-      setSaving(false);
-    }
+  const setSubject = async (next: string) => {
+    if (!next || next === current.subject) return;
+    applied((await api.setLabel(datasetName, current.id, next)).item);
   };
 
   const setStatus = async (status: Status) => {
     applied((await api.setStatus(datasetName, current.id, status)).item);
   };
 
+  // the current class may be one the dataset no longer declares, so include it as an option
+  const classOptions = (
+    classes.includes(current.subject) ? classes : [current.subject, ...classes]
+  ).map((c) => ({ value: c, label: c }));
+
   return (
-    <Modal open onClose={onClose} width="max-w-2xl">
-      <div className="flex gap-5">
-        <div className="w-48 shrink-0">
-          <img
-            src={current.url}
-            alt={current.subject}
-            className="h-48 w-48 rounded-lg object-cover"
-          />
-          <ItemDetail item={current} dims={dims} />
-        </div>
-        <div className="flex-1 space-y-4">
-          <div>
+    <Modal open onClose={onClose} width="max-w-xl">
+      <div className="absolute top-3 right-3 flex gap-2">
+        <button
+          onClick={() => onDelete(current.id)}
+          className="bg-bad/90 flex h-8 w-8 items-center justify-center rounded-full text-white hover:brightness-95"
+          title="Delete to bin"
+          aria-label="Delete to bin"
+        >
+          <TrashIcon className="h-4 w-4" />
+        </button>
+        <button
+          onClick={onClose}
+          className="border-border text-muted hover:bg-bg flex h-8 w-8 items-center justify-center rounded-full border"
+          title="Close"
+          aria-label="Close"
+        >
+          <CloseIcon className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="space-y-4">
+        <img
+          src={current.url}
+          alt={current.subject}
+          className="bg-bg max-h-[60vh] w-full rounded-lg object-contain"
+        />
+
+        <ItemDetail item={current} dims={dims} />
+
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="min-w-40 flex-1">
             <label className="text-sm font-medium">Class</label>
-            <input
-              className="border-border focus:border-primary mt-1 w-full rounded-lg border px-3 py-2 outline-none"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
+            <Select
+              className="mt-1"
+              value={current.subject}
+              placeholder="Choose class"
+              options={classOptions}
+              onChange={setSubject}
             />
           </div>
           <div>
@@ -97,49 +120,17 @@ export function AnnotateDialog({
                 <button
                   key={s}
                   onClick={() => setStatus(s)}
-                  className={`rounded-lg px-3 py-1.5 text-sm capitalize ${
+                  className={`rounded-lg px-3 py-1.5 text-sm ${
                     current.status === s
-                      ? "bg-primary text-white"
+                      ? ACTIVE_STATUS[s]
                       : "border-border text-muted hover:bg-bg border"
                   }`}
                 >
-                  {s}
+                  {statusLabel(s)}
                 </button>
               ))}
             </div>
           </div>
-          <div>
-            <label className="text-sm font-medium">Note</label>
-            <textarea
-              className="border-border focus:border-primary mt-1 w-full resize-none rounded-lg border px-3 py-2 outline-none"
-              rows={3}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
-          </div>
-        </div>
-      </div>
-      <div className="mt-6 flex items-center justify-between">
-        <button
-          className="text-bad hover:bg-bad/10 rounded-lg px-4 py-2"
-          onClick={() => onDelete(current.id)}
-        >
-          Delete to bin
-        </button>
-        <div className="flex gap-3">
-          <button
-            className="text-muted hover:text-text px-4 py-2"
-            onClick={onClose}
-          >
-            Close
-          </button>
-          <button
-            className="bg-primary rounded-lg px-4 py-2 font-medium text-white disabled:opacity-50"
-            disabled={saving}
-            onClick={save}
-          >
-            Save
-          </button>
         </div>
       </div>
     </Modal>

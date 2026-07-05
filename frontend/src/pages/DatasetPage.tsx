@@ -15,8 +15,11 @@ import { Expandable } from "../components/Expandable";
 import { JobProgress } from "../components/JobProgress";
 import { MismatchPanel } from "../components/MismatchPanel";
 import { FilterSidebar, type Filters } from "../components/FilterSidebar";
+import { Select } from "../components/Select";
 import { PencilIcon, RefreshIcon, TrashIcon } from "../components/icons";
-import type { Item, JobState, Prediction } from "../types";
+import type { Item, JobState, Prediction, Status } from "../types";
+import { statusLabel } from "../status";
+import { clearActiveJob, getActiveJob, setActiveJob } from "../activeJobs";
 
 type DialogName = "generate" | "rename" | null;
 
@@ -42,6 +45,9 @@ export function DatasetPage() {
   const [mismatches, setMismatches] = useState<Prediction[] | null>(null);
   const [banner, setBanner] = useState("");
   const [renameError, setRenameError] = useState("");
+  const [flaggedIds, setFlaggedIds] = useState<string[] | null>(null);
+  // set for exact dedup: each inner list is one duplicate set, rendered on its own row
+  const [dupeGroups, setDupeGroups] = useState<string[][] | null>(null);
   const [filters, setFilters] = useState<Filters>({
     classes: new Set(),
     sources: new Set(),
@@ -50,16 +56,52 @@ export function DatasetPage() {
 
   const items = useMemo(() => detail?.items ?? [], [detail]);
 
+  // declared sources plus any seen on items (e.g. "unknown"), so every source that can
+  // appear in the grid is offered as a filter option
+  const sourceOptions = useMemo(() => {
+    const seen = new Set(detail?.sources ?? []);
+    for (const i of items) seen.add(i.source);
+    return [...seen].sort();
+  }, [detail, items]);
+
   const visible = useMemo(() => {
-    return items.filter((i) => {
+    const flagged = flaggedIds ? new Set(flaggedIds) : null;
+    const filtered = items.filter((i) => {
+      if (flagged && !flagged.has(i.id)) return false;
       if (filters.classes.size && !filters.classes.has(i.subject)) return false;
       if (filters.sources.size && !filters.sources.has(i.source)) return false;
       if (filters.statuses.size && !filters.statuses.has(i.status)) return false;
       return true;
     });
-  }, [items, filters]);
+    if (!flaggedIds) return filtered;
+    // show flagged images in the order the scan returned them, so duplicate groups stay
+    // adjacent instead of scattered by manifest order
+    const rank = new Map(flaggedIds.map((id, n) => [id, n]));
+    return [...filtered].sort(
+      (a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0),
+    );
+  }, [items, filters, flaggedIds]);
+
+  // set while a flag-and-filter dedup job runs, so onJobDone can read its result
+  const dedupMode = useRef<"exact" | "outliers" | null>(null);
 
   const onJobDone = (job: JobState) => {
+    const mode = dedupMode.current;
+    dedupMode.current = null;
+    if (mode && job.status === "done") {
+      const result = job.result as { flagged: string[]; groups?: string[][] };
+      const ids = result.flagged;
+      const label = mode === "exact" ? "duplicate" : "outlier";
+      setFlaggedIds(ids);
+      setDupeGroups(result.groups ?? null);
+      setBanner(
+        ids.length
+          ? `Filtered to ${ids.length} possible ${label}${ids.length === 1 ? "" : "s"}. Review and delete, or clear the filter.`
+          : `No ${label}s found.`,
+      );
+      return;
+    }
+    clearActiveJob(name);
     refresh();
     if (job.status === "error") setBanner(job.error);
   };
@@ -67,7 +109,16 @@ export function DatasetPage() {
 
   useEffect(() => {
     load(name);
-  }, [name, load]);
+    // reattach to a generate/train job left running when the page was last open,
+    // dropping the stored id if that job no longer exists on the server
+    const active = getActiveJob(name);
+    if (active) {
+      api
+        .job(active)
+        .then(() => start(active))
+        .catch(() => clearActiveJob(name));
+    }
+  }, [name, load, start]);
 
   const runJob = async (fn: () => Promise<{ job_id: string }>) => {
     setBanner("");
@@ -75,7 +126,9 @@ export function DatasetPage() {
     setDialog(null);
     clear();
     try {
-      start((await fn()).job_id);
+      const { job_id } = await fn();
+      setActiveJob(name, job_id);
+      start(job_id);
     } catch (e) {
       setBanner(e instanceof ApiError ? e.message : "Could not start the job");
     }
@@ -99,6 +152,28 @@ export function DatasetPage() {
     } catch (e) {
       setBanner(e instanceof ApiError ? e.message : "Could not run inference");
     }
+  };
+
+  const runDedup = async (mode: "exact" | "outliers") => {
+    setBanner("");
+    setMismatches(null);
+    setFlaggedIds(null);
+    setDupeGroups(null);
+    clear();
+    dedupMode.current = mode;
+    try {
+      const { job_id } = await api.dedup(name, mode);
+      start(job_id);
+    } catch (e) {
+      dedupMode.current = null;
+      setBanner(e instanceof ApiError ? e.message : "Could not run the scan");
+    }
+  };
+
+  const clearFlagged = () => {
+    setFlaggedIds(null);
+    setDupeGroups(null);
+    setBanner("");
   };
 
   const rename = async (newName: string) => {
@@ -157,6 +232,14 @@ export function DatasetPage() {
     refresh();
   };
 
+  const markSelected = async (status: Status) => {
+    const ids = [...selected];
+    if (!ids.length) return;
+    await api.setStatusMany(name, ids, status);
+    clearSelection();
+    refresh();
+  };
+
   // toggling an item's checkbox enters select mode, so the user can then click other
   // images to keep selecting without first hitting the Select button
   const toggleItem = (id: string) => {
@@ -183,7 +266,7 @@ export function DatasetPage() {
             <PencilIcon className="h-4 w-4" />
           </button>
         }
-        subtitle={`${s.total} images, ${s.pending} pending, ${s.valid} valid`}
+        subtitle={`${s.total} images, ${s.pending} unreviewed, ${s.valid} valid`}
         backTo="/"
         actions={
           <div className="flex items-center gap-2">
@@ -207,25 +290,33 @@ export function DatasetPage() {
         }
       />
 
+      {banner && (
+        <div className="border-warn/30 bg-warn/10 text-warn mb-4 flex items-center gap-3 rounded-lg border px-4 py-2 text-sm">
+          <span>{banner}</span>
+          {flaggedIds && (
+            <button
+              className="hover:text-text ml-auto underline"
+              onClick={clearFlagged}
+            >
+              Clear filter
+            </button>
+          )}
+        </div>
+      )}
+
       <Expandable title="Summary">
         <SummaryPanel datasetName={name} onChanged={refresh} />
       </Expandable>
 
-      <Expandable title="Dataset tools" defaultOpen>
+      <Expandable title="Tools" defaultOpen>
         <MLToolsPanel
           onGenerate={() => setDialog("generate")}
-          onDuplicates={() => runJob(() => api.dedup(name, "exact"))}
-          onOutliers={() => runJob(() => api.dedup(name, "outliers"))}
+          onDuplicates={() => runDedup("exact")}
+          onOutliers={() => runDedup("outliers")}
           onTrain={() => runJob(() => api.train(name, "mobilenet_v2", 8))}
           onClassify={runInfer}
         />
       </Expandable>
-
-      {banner && (
-        <p className="bg-bad/10 text-bad mb-4 rounded-lg px-4 py-2 text-sm">
-          {banner}
-        </p>
-      )}
 
       {job && running && (
         <div className="mb-4">
@@ -270,21 +361,23 @@ export function DatasetPage() {
           >
             Clear
           </button>
-          <select
-            className="border-border ml-auto rounded-lg border bg-transparent px-2 py-1.5 text-sm"
+          <Select
+            className="ml-auto w-32"
             value=""
-            onChange={(e) => {
-              moveSelectedTo(e.target.value);
-              e.target.value = "";
-            }}
-          >
-            <option value="">Move to class</option>
-            {detail.subjects.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+            placeholder="Mark as"
+            options={[
+              { value: "valid", label: statusLabel("valid") },
+              { value: "pending", label: statusLabel("pending") },
+            ]}
+            onChange={(v) => markSelected(v as Status)}
+          />
+          <Select
+            className="w-40"
+            value=""
+            placeholder="Move to class"
+            options={detail.subjects.map((c) => ({ value: c, label: c }))}
+            onChange={(v) => moveSelectedTo(v)}
+          />
           <button
             className="bg-bad rounded-lg px-3 py-1.5 text-sm font-medium text-white"
             onClick={deleteSelected}
@@ -302,7 +395,7 @@ export function DatasetPage() {
         <div className="flex gap-5">
           <FilterSidebar
             classes={detail.subjects}
-            sources={detail.sources}
+            sources={sourceOptions}
             filters={filters}
             setFilters={setFilters}
             shown={visible.length}
@@ -313,6 +406,17 @@ export function DatasetPage() {
               <p className="text-muted mt-16 text-center">
                 No images match the current filters.
               </p>
+            ) : dupeGroups ? (
+              <DuplicateGroups
+                groups={dupeGroups}
+                items={visible}
+                selected={selected}
+                selectMode={selectMode}
+                onToggle={toggleItem}
+                onSetSelected={setSelected}
+                onOpen={setOpenItem}
+                onDelete={deleteOne}
+              />
             ) : (
               <ImageGrid
                 items={visible}
@@ -331,6 +435,7 @@ export function DatasetPage() {
       <AnnotateDialog
         item={openItem}
         datasetName={name}
+        classes={detail.subjects}
         onClose={() => setOpenItem(null)}
         onDelete={deleteOne}
       />
@@ -355,6 +460,38 @@ export function DatasetPage() {
   );
 }
 
+type GridProps = {
+  selected: Set<string>;
+  selectMode: boolean;
+  onToggle: (id: string) => void;
+  onSetSelected: (id: string, on: boolean) => void;
+  onOpen: (item: Item) => void;
+  onDelete: (id: string) => void;
+};
+
+// one duplicate set per row: each group is its own grid so a new group always starts on
+// a fresh line instead of flowing into the previous group's trailing cells
+function DuplicateGroups({
+  groups,
+  items,
+  ...grid
+}: GridProps & { groups: string[][]; items: Item[] }) {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const rows = groups
+    .map((ids) => ids.map((id) => byId.get(id)).filter((i): i is Item => !!i))
+    .filter((row) => row.length > 0);
+
+  return (
+    <div className="space-y-3">
+      {rows.map((row) => (
+        <div key={row[0].id} className="border-border rounded-xl border p-2">
+          <ImageGrid items={row} {...grid} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ImageGrid({
   items,
   selected,
@@ -363,15 +500,7 @@ function ImageGrid({
   onSetSelected,
   onOpen,
   onDelete,
-}: {
-  items: Item[];
-  selected: Set<string>;
-  selectMode: boolean;
-  onToggle: (id: string) => void;
-  onSetSelected: (id: string, on: boolean) => void;
-  onOpen: (item: Item) => void;
-  onDelete: (id: string) => void;
-}) {
+}: GridProps & { items: Item[] }) {
   // drag across cards to paint selection, only in select mode
   const dragging = useRef(false);
   const dragValue = useRef(true);

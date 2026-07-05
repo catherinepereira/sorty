@@ -58,7 +58,9 @@ def summarize(ds: Dataset, root: Path) -> dict:
     """Per-class counts, per-source counts, and total bytes on disk for the live dataset."""
     live = [i for i in ds.items if not is_binned(i)]
 
-    per_class = Counter(i.subject or i.label for i in live)
+    # start every declared class at zero so empty classes still appear, then count items
+    per_class: Counter[str] = Counter({s: 0 for s in ds.subjects})
+    per_class.update(i.subject or i.label for i in live)
     per_source = Counter(i.source for i in live)
 
     bytes_total = 0

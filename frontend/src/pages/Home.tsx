@@ -5,12 +5,13 @@ import type { DatasetSummary } from "../types";
 import { Header } from "../components/Header";
 import { NewDatasetDialog } from "../components/NewDatasetDialog";
 import { useConfirm } from "../hooks/useConfirm";
-import { TrashIcon } from "../components/icons";
+import { PlusIcon, RefreshIcon, TrashIcon } from "../components/icons";
 
 export function Home() {
   const nav = useNavigate();
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const { ask, element } = useConfirm();
 
   const refresh = () =>
@@ -22,6 +23,18 @@ export function Home() {
   useEffect(() => {
     refresh();
   }, []);
+
+  // reconcile every dataset's manifest with the files on disk, then re-list
+  const syncAll = async () => {
+    setSyncing(true);
+    try {
+      const current = await api.listDatasets();
+      await Promise.all(current.map((d) => api.refresh(d.name).catch(() => {})));
+      await refresh();
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const remove = async (name: string) => {
     const ok = await ask({
@@ -40,12 +53,25 @@ export function Home() {
       <Header
         subtitle="Build and clean image datasets"
         actions={
-          <button
-            className="bg-primary rounded-lg px-4 py-2 font-medium text-white hover:brightness-95"
-            onClick={() => setDialogOpen(true)}
-          >
-            New dataset
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={syncAll}
+              disabled={syncing}
+              className="border-border text-muted hover:bg-card flex h-10 w-10 items-center justify-center rounded-lg border disabled:opacity-50"
+              title="Sync datasets to disk"
+              aria-label="Sync datasets to disk"
+            >
+              <RefreshIcon className={`h-5 w-5 ${syncing ? "animate-spin" : ""}`} />
+            </button>
+            <button
+              onClick={() => setDialogOpen(true)}
+              className="bg-primary flex h-10 w-10 items-center justify-center rounded-lg font-medium text-white hover:brightness-95"
+              title="New dataset"
+              aria-label="New dataset"
+            >
+              <PlusIcon className="h-5 w-5" />
+            </button>
+          </div>
         }
       />
 
