@@ -93,7 +93,6 @@ def crossval(root: Path, ds: Dataset, folds: int, epochs: int, progress: JobProg
             continue
         out.append(Prediction(
             item_id=item.item_id, label=item.label,
-            subject=item.subject or item.label, predicted=entry["predicted"],
-            local_path=item.local_path,
+            predicted=entry["predicted"], local_path=item.local_path,
         ))
     return out

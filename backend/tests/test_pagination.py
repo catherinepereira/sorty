@@ -143,8 +143,9 @@ def test_mixed_targets_do_not_starve_a_small_want_subject(tmp_path: Path):
 
     from collections import Counter
 
-    by = Counter(i.subject for i in fresh)
-    assert by["A"] == 3 and by["B"] == 3
+    # items identify by slug label, so "A" lands under "a"
+    by = Counter(i.label for i in fresh)
+    assert by["a"] == 3 and by["b"] == 3
 
 
 def test_add_images_target_total_tops_up_to_the_total(tmp_path: Path):

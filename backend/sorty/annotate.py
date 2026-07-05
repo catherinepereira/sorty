@@ -39,21 +39,16 @@ def set_status_many(ds: Dataset, item_ids: list[str], status: ReviewStatus) -> i
     return changed
 
 
-def set_label(ds: Dataset, root: Path, item_id: str, new_subject: str) -> None:
-    """Rename an item's subject, keeping the slug label and file layout in step.
+def set_label(ds: Dataset, root: Path, item_id: str, new_class: str) -> None:
+    """Move an item to a class, keeping the slug label and file layout in step.
 
-    new_subject is the human-readable name. Its slug becomes the label, and the file
-    moves into the new label folder when the slug changes. A subject that reslugs to
-    the same label (a casing or spacing edit) updates the display name without moving
-    the file. Slugified into the dataset's subject list if absent.
+    new_class is slugified to the label. When the slug changes, the file moves into the
+    new label's folder and the slug joins the dataset's class list if absent.
     """
     item = _find(ds, item_id)
-    new_subject = new_subject.strip()
-    label = slugify(new_subject)
+    label = slugify(new_class.strip())
     if not label:
-        raise ValueError("Subject is empty after slugifying.")
-
-    item.subject = new_subject
+        raise ValueError("Class is empty after slugifying.")
 
     if label != item.label:
         old_path = root / item.local_path
@@ -71,24 +66,22 @@ def set_label(ds: Dataset, root: Path, item_id: str, new_subject: str) -> None:
 
 
 def move_to_class(ds: Dataset, root: Path, item_ids: list[str], subject: str) -> int:
-    """Relabel many items to one class, moving their files. Returns how many moved.
+    """Move many items to one class, moving their files. Returns how many moved.
 
-    The target class is added to the subject list with its display name if new. Missing
+    subject is slugified to the target label, which joins the class list if new. Missing
     ids are skipped rather than raising, so a stale selection does not abort the batch.
     """
-    subject = subject.strip()
-    label = slugify(subject)
+    label = slugify(subject.strip())
     if not label:
         raise ValueError("Class is empty after slugifying.")
-    if subject not in ds.subjects and label not in {slugify(s) for s in ds.subjects}:
-        ds.subjects.append(subject)
+    if label not in ds.subjects:
+        ds.subjects.append(label)
 
     wanted = set(item_ids)
     moved = 0
     for item in ds.items:
         if item.item_id not in wanted:
             continue
-        item.subject = subject
         if label != item.label:
             old_path = root / item.local_path
             new_rel = Path(label) / f"{label}_{item.item_id}{old_path.suffix}"

@@ -1,9 +1,8 @@
 """Delete and merge whole classes in a dataset.
 
-Both operate on the class label (the slug of the class name), so they catch items
-whether their subject field matches or only their label does. Files move through the OS
-recycle bin, not a hard unlink, so a mistaken delete or merge is recoverable. Callers
-save the dataset afterward.
+A class is identified by its slug label. Files move through the OS recycle bin, not a
+hard unlink, so a mistaken delete or merge is recoverable. Callers save the dataset
+afterward.
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ def _class_root(root: Path, label: str) -> Path | None:
 
 def _items_for(ds: Dataset, class_name: str) -> list[DatasetItem]:
     label = slugify(class_name)
-    return [i for i in ds.items if i.subject == class_name or i.label == label]
+    return [i for i in ds.items if i.label == label]
 
 
 def delete_class(ds: Dataset, root: Path, class_name: str) -> int:
@@ -38,7 +37,7 @@ def delete_class(ds: Dataset, root: Path, class_name: str) -> int:
     label = slugify(class_name)
     doomed = {i.item_id for i in _items_for(ds, class_name)}
     ds.items = [i for i in ds.items if i.item_id not in doomed]
-    ds.subjects = [s for s in ds.subjects if slugify(s) != label]
+    ds.subjects = [s for s in ds.subjects if s != label]
 
     folder = _class_root(root, label)
     if folder is not None and folder.exists():
@@ -48,30 +47,23 @@ def delete_class(ds: Dataset, root: Path, class_name: str) -> int:
 
 
 def rename_class(ds: Dataset, root: Path, old_name: str, new_name: str) -> int:
-    """Rename a class: move its folder and relabel every item to the new name.
+    """Rename a class: move its folder and relabel every item to the new slug.
 
     Returns how many items were relabeled. A new name that slugifies to an existing
-    different class is rejected, since that would silently merge them. A name that only
-    changes casing or spacing (same slug) updates the display name without moving files.
+    different class is rejected, since that would silently merge them. A name that
+    reslugs to the same label is a no-op.
     """
-    new_name = new_name.strip()
-    new_label = slugify(new_name)
+    new_label = slugify(new_name.strip())
     old_label = slugify(old_name)
     if not new_label:
         raise ValueError("New class name is empty after slugifying.")
     if new_label == old_label:
-        # same folder, so update the display name on the subject and its items
-        ds.subjects = [new_name if slugify(s) == old_label else s for s in ds.subjects]
-        for item in _items_for(ds, old_name):
-            item.subject = new_name
-        ds.touch()
-        return len(_items_for(ds, new_name))
+        return len(_items_for(ds, old_name))
 
-    if any(slugify(s) == new_label for s in ds.subjects):
-        raise ValueError(f"A class named {new_name!r} already exists. Merge instead.")
+    if new_label in ds.subjects:
+        raise ValueError(f"A class named {new_label!r} already exists. Merge instead.")
 
-    new_dir = root / new_label
-    new_dir.mkdir(parents=True, exist_ok=True)
+    (root / new_label).mkdir(parents=True, exist_ok=True)
     moved = 0
     for item in _items_for(ds, old_name):
         old_path = root / item.local_path
@@ -81,11 +73,10 @@ def rename_class(ds: Dataset, root: Path, old_name: str, new_name: str) -> int:
             (root / new_rel).parent.mkdir(parents=True, exist_ok=True)
             old_path.replace(root / new_rel)
         item.label = new_label
-        item.subject = new_name
         item.local_path = str(new_rel)
         moved += 1
 
-    ds.subjects = [new_name if slugify(s) == old_label else s for s in ds.subjects]
+    ds.subjects = [new_label if s == old_label else s for s in ds.subjects]
     folder = _class_root(root, old_label)
     if folder is not None and folder.exists():
         send2trash(str(folder))
@@ -99,16 +90,16 @@ def merge_classes(
     """Fold one or more classes into a target class, moving files and relabeling items.
 
     Each source item's file moves into the target's folder under a target-labeled name,
-    its label and subject become the target's, and its local_path is rewritten. Items are
-    deduped by id. Source classes are dropped from the subject list and their now-empty
-    folders trashed. The target is created if it is not already a class. Returns how many
-    items moved.
+    its label becomes the target's, and its local_path is rewritten. Items are deduped by
+    id. Source classes are dropped from the class list and their now-empty folders
+    trashed. The target is created if it is not already a class. Returns how many items
+    moved.
     """
     target_label = slugify(target_name)
     if not target_label:
         raise ValueError("Target class is empty after slugifying.")
-    if target_name not in ds.subjects:
-        ds.subjects.append(target_name)
+    if target_label not in ds.subjects:
+        ds.subjects.append(target_label)
     target_dir = root / target_label
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -126,11 +117,10 @@ def merge_classes(
                 new_path.parent.mkdir(parents=True, exist_ok=True)
                 old_path.replace(new_path)
             item.label = target_label
-            item.subject = target_name
             item.local_path = str(new_rel)
             moved += 1
 
-        ds.subjects = [s for s in ds.subjects if slugify(s) != source_label]
+        ds.subjects = [s for s in ds.subjects if s != source_label]
         folder = _class_root(root, source_label)
         if folder is not None and folder.exists():
             send2trash(str(folder))

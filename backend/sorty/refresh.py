@@ -9,17 +9,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sorty.core import MANIFEST_DIR, Dataset, DatasetItem, save_dataset, slugify
+from sorty.core import MANIFEST_DIR, Dataset, DatasetItem, save_dataset
 from sorty.core.download import IMAGE_EXTS
 from sorty.recyclebin import is_binned
-
-
-def _class_subject(ds: Dataset, label: str) -> str:
-    """The display subject whose slug is label, else the label itself."""
-    for subject in ds.subjects:
-        if slugify(subject) == label:
-            return subject
-    return label
 
 
 def refresh_manifest(ds: Dataset, root: Path) -> dict[str, int]:
@@ -46,15 +38,14 @@ def refresh_manifest(ds: Dataset, root: Path) -> dict[str, int]:
             ds.items.append(DatasetItem(
                 item_id=item_id,
                 label=label,
-                subject=_class_subject(ds, label),
                 source="unknown",
                 source_url="",
                 local_path=rel,
             ))
             known_paths.add(rel)
             added += 1
-            if label not in {slugify(s) for s in ds.subjects}:
-                ds.subjects.append(_class_subject(ds, label))
+            if label not in ds.subjects:
+                ds.subjects.append(label)
 
     before = len(ds.items)
     ds.items = [

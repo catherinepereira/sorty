@@ -2,8 +2,8 @@ export type Status = "pending" | "valid" | "invalid";
 
 export interface Item {
   id: string;
+  // class slug (e.g. "boat-pose"), prettified for display via prettyClass
   label: string;
-  subject: string;
   status: Status;
   url: string;
   binned: boolean;
@@ -36,7 +36,6 @@ export interface DatasetDetail {
 export interface Prediction {
   id: string;
   label: string;
-  subject: string;
   predicted: string;
   url: string;
 }

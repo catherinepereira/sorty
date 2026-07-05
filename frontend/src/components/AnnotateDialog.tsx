@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "./Modal";
 import { Select } from "./Select";
+import { prettyClass } from "../classname";
 import { api } from "../api";
 import { useDataset } from "../stores/dataset";
 import type { Item, Status } from "../types";
@@ -59,7 +60,7 @@ export function AnnotateDialog({
   };
 
   const setSubject = async (next: string) => {
-    if (!next || next === current.subject) return;
+    if (!next || next === current.label) return;
     applied((await api.setLabel(datasetName, current.id, next)).item);
   };
 
@@ -69,34 +70,37 @@ export function AnnotateDialog({
 
   // the current class may be one the dataset no longer declares, so include it as an option
   const classOptions = (
-    classes.includes(current.subject) ? classes : [current.subject, ...classes]
-  ).map((c) => ({ value: c, label: c }));
+    classes.includes(current.label) ? classes : [current.label, ...classes]
+  ).map((c) => ({ value: c, label: prettyClass(c) }));
 
   return (
     <Modal open onClose={onClose} width="max-w-xl">
-      <div className="absolute top-3 right-3 flex gap-2">
-        <button
-          onClick={() => onDelete(current.id)}
-          className="bg-bad/90 flex h-8 w-8 items-center justify-center rounded-full text-white hover:brightness-95"
-          title="Delete to bin"
-          aria-label="Delete to bin"
-        >
-          <TrashIcon className="h-4 w-4" />
-        </button>
-        <button
-          onClick={onClose}
-          className="border-border text-muted hover:bg-bg flex h-8 w-8 items-center justify-center rounded-full border"
-          title="Close"
-          aria-label="Close"
-        >
-          <CloseIcon className="h-4 w-4" />
-        </button>
-      </div>
-
       <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <h2 className="flex-1 truncate text-lg font-semibold">
+            {prettyClass(current.label)}
+          </h2>
+          <button
+            onClick={() => onDelete(current.id)}
+            className="bg-bad/90 flex h-8 w-8 items-center justify-center rounded-full text-white hover:brightness-95"
+            title="Delete to bin"
+            aria-label="Delete to bin"
+          >
+            <TrashIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={onClose}
+            className="border-border text-muted hover:bg-bg flex h-8 w-8 items-center justify-center rounded-full border"
+            title="Close"
+            aria-label="Close"
+          >
+            <CloseIcon className="h-4 w-4" />
+          </button>
+        </div>
+
         <img
           src={current.url}
-          alt={current.subject}
+          alt={prettyClass(current.label)}
           className="bg-bg max-h-[60vh] w-full rounded-lg object-contain"
         />
 
@@ -107,7 +111,7 @@ export function AnnotateDialog({
             <label className="text-sm font-medium">Class</label>
             <Select
               className="mt-1"
-              value={current.subject}
+              value={current.label}
               placeholder="Choose class"
               options={classOptions}
               onChange={setSubject}
@@ -164,19 +168,17 @@ function ItemDetail({
     <dl className="mt-3 space-y-1 text-xs">
       <Row label="Source" value={item.source} />
       {item.source_url && (
-        <div>
-          <dt className="text-muted">Source URL</dt>
-          <dd className="truncate">
-            <a
-              href={item.source_url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-primary hover:underline"
-              title={item.source_url}
-            >
-              {item.source_url}
-            </a>
-          </dd>
+        <div className="flex justify-between gap-2">
+          <dt className="text-muted shrink-0">Source URL</dt>
+          <a
+            href={item.source_url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary min-w-0 truncate hover:underline"
+            title={item.source_url}
+          >
+            {item.source_url}
+          </a>
         </div>
       )}
       {item.title && <Row label="Title" value={item.title} />}

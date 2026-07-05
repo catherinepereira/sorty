@@ -5,6 +5,7 @@ import { useConfirm } from "../hooks/useConfirm";
 import { MergeIcon, PencilIcon, SparklesIcon, TrashIcon } from "./icons";
 import { GenerateClassesDialog } from "./GenerateClassesDialog";
 import { Select } from "./Select";
+import { prettyClass } from "../classname";
 
 function humanBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -156,9 +157,10 @@ function ClassManager({
   };
 
   const deleteClass = async (name: string, count: number) => {
+    const pretty = prettyClass(name);
     const ok = await ask({
-      title: `Delete "${name}"`,
-      message: `Delete all ${count} image${count === 1 ? "" : "s"} in "${name}" and remove the class? The folder goes to your computer's recycle bin.`,
+      title: `Delete "${pretty}"`,
+      message: `Delete all ${count} image${count === 1 ? "" : "s"} in "${pretty}" and remove the class? The folder goes to your computer's recycle bin.`,
       confirmLabel: "Delete class",
       danger: true,
     });
@@ -188,7 +190,7 @@ function ClassManager({
 
   const startEdit = (name: string) => {
     setEditing(name);
-    setEditValue(name);
+    setEditValue(prettyClass(name));
     setError("");
   };
 
@@ -248,7 +250,7 @@ function ClassManager({
               className="accent-primary"
               checked={merging.has(c.name)}
               onChange={() => toggleMerge(c.name)}
-              aria-label={`Select ${c.name} to merge`}
+              aria-label={`Select ${prettyClass(c.name)} to merge`}
             />
             {editing === c.name ? (
               <input
@@ -263,15 +265,15 @@ function ClassManager({
                 onBlur={saveRename}
               />
             ) : (
-              <span className="flex-1 truncate">{c.name}</span>
+              <span className="flex-1 truncate">{prettyClass(c.name)}</span>
             )}
             <span className="text-muted">{c.count}</span>
             <button
               onClick={() => startEdit(c.name)}
               disabled={busy}
               className="text-muted hover:text-primary p-1 disabled:opacity-40"
-              title={`Rename ${c.name}`}
-              aria-label={`Rename ${c.name}`}
+              title={`Rename ${prettyClass(c.name)}`}
+              aria-label={`Rename ${prettyClass(c.name)}`}
             >
               <PencilIcon />
             </button>
@@ -279,8 +281,8 @@ function ClassManager({
               onClick={() => deleteClass(c.name, c.count)}
               disabled={busy}
               className="text-muted hover:text-bad p-1 disabled:opacity-40"
-              title={`Delete ${c.name}`}
-              aria-label={`Delete ${c.name}`}
+              title={`Delete ${prettyClass(c.name)}`}
+              aria-label={`Delete ${prettyClass(c.name)}`}
             >
               <TrashIcon />
             </button>
@@ -334,7 +336,7 @@ function ClassManager({
             className="w-40"
             value={target}
             placeholder="Choose target"
-            options={names.map((n) => ({ value: n, label: n }))}
+            options={names.map((n) => ({ value: n, label: prettyClass(n) }))}
             onChange={setTarget}
           />
           <button

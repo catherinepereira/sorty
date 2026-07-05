@@ -11,6 +11,7 @@ import io
 from pathlib import Path
 from typing import Callable, Optional
 
+from sorty.core.ids import slugify
 from sorty.core.models import Dataset, DatasetItem
 from sorty.core.paths import manifest_path, meta_dir
 
@@ -22,7 +23,26 @@ def load_dataset(dataset_root: Path) -> Dataset:
     path = manifest_path(dataset_root)
     if not path.exists():
         raise FileNotFoundError(f"No manifest found at {path}")
-    return Dataset.model_validate_json(path.read_text(encoding="utf-8"))
+    ds = Dataset.model_validate_json(path.read_text(encoding="utf-8"))
+    _migrate_subjects_to_slugs(ds)
+    return ds
+
+
+def _migrate_subjects_to_slugs(ds: Dataset) -> None:
+    """Fold a pre-slug class list into deduped slugs.
+
+    Older manifests stored display names (and a per-item subject) alongside the slug
+    label. Items already identify by their slug label, so collapsing the subject list to
+    slugs merges the stray "Boat Pose" + "boat-pose" pair a rename left behind.
+    """
+    seen: set[str] = set()
+    slugged: list[str] = []
+    for s in ds.subjects:
+        label = slugify(s)
+        if label and label not in seen:
+            seen.add(label)
+            slugged.append(label)
+    ds.subjects = slugged
 
 
 def save_dataset(ds: Dataset, dataset_root: Path) -> None:
@@ -33,17 +53,16 @@ def save_dataset(ds: Dataset, dataset_root: Path) -> None:
 
 
 def _defang(value: str) -> str:
-    """Keep a subject or label that starts with a formula char from running in a spreadsheet."""
+    """Keep a label that starts with a formula char from running in a spreadsheet."""
     return "'" + value if value.startswith(_FORMULA_PREFIXES) else value
 
 
 def _write_labels(ds: Dataset, md: Path) -> None:
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\n")
-    writer.writerow(["filename", "label", "subject", "source"])
+    writer.writerow(["filename", "label", "source"])
     for item in ds.items:
-        subject = item.subject or item.label
-        writer.writerow([item.local_path, _defang(item.label), _defang(subject), _defang(item.source)])
+        writer.writerow([item.local_path, _defang(item.label), _defang(item.source)])
     (md / "labels.csv").write_text(buf.getvalue(), encoding="utf-8")
 
 

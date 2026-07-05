@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { prettyClass } from "../classname";
 
 export interface Filters {
   classes: Set<string>;
@@ -39,10 +40,12 @@ function CheckList({
   options,
   chosen,
   onToggle,
+  renderLabel = (v) => v,
 }: {
   options: string[];
   chosen: Set<string>;
   onToggle: (v: string) => void;
+  renderLabel?: (value: string) => string;
 }) {
   return (
     <div className="max-h-48 space-y-1 overflow-y-auto">
@@ -57,7 +60,7 @@ function CheckList({
             checked={chosen.has(o)}
             onChange={() => onToggle(o)}
           />
-          <span className="truncate">{o}</span>
+          <span className="truncate">{renderLabel(o)}</span>
         </label>
       ))}
     </div>
@@ -126,6 +129,7 @@ export function FilterSidebar({
             options={classes}
             chosen={filters.classes}
             onToggle={(v) => toggle("classes", v)}
+            renderLabel={prettyClass}
           />
         </Section>
 

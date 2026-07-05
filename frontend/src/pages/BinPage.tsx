@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { api } from "../api";
 import { useConfirm } from "../hooks/useConfirm";
 import { Header } from "../components/Header";
+import { prettyClass } from "../classname";
 import type { Item } from "../types";
 
 export function BinPage() {
@@ -95,11 +96,11 @@ export function BinPage() {
             >
               <img
                 src={item.url}
-                alt={item.subject}
+                alt={prettyClass(item.label)}
                 className="aspect-square w-full object-cover opacity-70"
                 loading="lazy"
               />
-              <div className="truncate p-2 text-sm">{item.subject}</div>
+              <div className="truncate p-2 text-sm">{prettyClass(item.label)}</div>
             </button>
           ))}
         </div>

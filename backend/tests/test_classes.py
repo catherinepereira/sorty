@@ -76,27 +76,26 @@ def test_rename_class_moves_folder_and_relabels(dataset):
     moved = classes.rename_class(ds, root, "robin", "American Robin")
 
     assert moved == 3
-    assert "American Robin" in ds.subjects and "robin" not in ds.subjects
+    assert "american-robin" in ds.subjects and "robin" not in ds.subjects
     assert not (root / "robin").exists()
     robins = [i for i in ds.items if i.label == "american-robin"]
     assert len(robins) == 3
     for item in robins:
-        assert item.subject == "American Robin"
         assert (root / item.local_path).exists()
 
 
-def test_rename_class_casing_only_keeps_folder(dataset):
-    """Renaming to the same slug updates the display name without moving files."""
+def test_rename_class_same_slug_is_noop(dataset):
+    """Renaming to a name with the same slug leaves the files and label untouched."""
     ds, root = dataset
     paths_before = {i.item_id: i.local_path for i in ds.items if i.label == "robin"}
 
     classes.rename_class(ds, root, "robin", "Robin")
 
-    assert "Robin" in ds.subjects
+    assert "robin" in ds.subjects
     for i in ds.items:
         if i.item_id in paths_before:
             assert i.local_path == paths_before[i.item_id]
-            assert i.subject == "Robin"
+            assert i.label == "robin"
 
 
 def test_rename_onto_existing_class_is_rejected(dataset):

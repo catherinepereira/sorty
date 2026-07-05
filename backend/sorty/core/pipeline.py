@@ -48,7 +48,6 @@ def records_to_items(raw_results: dict) -> list[DatasetItem]:
                 items.append(DatasetItem(
                     item_id=item_id,
                     label=label,
-                    subject=subject,
                     source=rec.get("source", "unknown"),
                     source_url=url,
                     title=rec.get("title", ""),
@@ -134,12 +133,9 @@ async def _fetch_at_offsets(
 
 
 def _live_count(ds: Dataset, subject: str) -> int:
-    """Manifest items for a subject that are still live (not in the recycle bin)."""
+    """Live (not binned) manifest items for a class, matched by slug."""
     label = slugify(subject)
-    return sum(
-        1 for i in ds.items
-        if i.deleted_at is None and (i.subject == subject or i.label == label)
-    )
+    return sum(1 for i in ds.items if i.deleted_at is None and i.label == label)
 
 
 def _download_new(
@@ -186,13 +182,13 @@ def add_images(
     """
     reporter = Reporter(on_progress)
     for s in subjects:
-        if s not in ds.subjects:
-            ds.subjects.append(s)
+        label = slugify(s)
+        if label not in ds.subjects:
+            ds.subjects.append(label)
+        (dataset_root / label).mkdir(parents=True, exist_ok=True)
     for s in sources:
         if s not in ds.sources:
             ds.sources.append(s)
-    for subject in subjects:
-        (dataset_root / slugify(subject)).mkdir(parents=True, exist_ok=True)
 
     if target_total:
         targets = {s: max(0, count - _live_count(ds, s)) for s in subjects}

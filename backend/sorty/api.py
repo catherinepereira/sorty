@@ -42,7 +42,6 @@ def _item_view(item: DatasetItem, root: Path) -> dict[str, Any]:
     return {
         "id": item.item_id,
         "label": item.label,
-        "subject": item.subject or item.label,
         "status": item.review_status.value,
         "url": media_url(root / item.local_path),
         "binned": is_binned(item),
@@ -59,7 +58,6 @@ def _prediction_view(p: classify.Prediction, root: Path) -> dict[str, Any]:
     return {
         "id": p.item_id,
         "label": p.label,
-        "subject": p.subject,
         "predicted": p.predicted,
         "url": media_url(root / p.local_path),
     }

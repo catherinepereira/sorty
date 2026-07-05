@@ -21,10 +21,9 @@ class ReviewStatus(str, Enum):
 
 class DatasetItem(BaseModel):
     item_id: str
+    # the class this image belongs to, a slug (e.g. "boat-pose"). the UI prettifies it
     label: str
     local_path: str
-    # the class name the label was slugified from, shown in the UI
-    subject: str = ""
     source: str = UNKNOWN_SOURCE
     source_url: str = ""
     # the original title the source gave the image, empty for manual or untitled images
@@ -42,6 +41,7 @@ class DatasetItem(BaseModel):
 class Dataset(BaseModel):
     dataset_id: str
     prompt: str
+    # class slugs (e.g. "boat-pose"), the single identity for a class
     subjects: list[str]
     sources: list[str]
     items: list[DatasetItem] = Field(default_factory=list)

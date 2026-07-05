@@ -115,8 +115,9 @@ def test_add_images_target_total_fetches_only_shortfall(dataset):
 def test_set_subjects_saves_deduped_without_fetch(dataset):
     _, root = dataset
     out = generate.set_subjects(root, ["Owl", "owl ", " Hawk", "Owl"])
-    assert out == ["Owl", "Hawk"]
-    assert load_dataset(root).subjects == ["Owl", "Hawk"]
+    # stored as deduped slugs
+    assert out == ["owl", "hawk"]
+    assert load_dataset(root).subjects == ["owl", "hawk"]
 
 
 def test_set_subjects_creates_empty_folders(dataset):

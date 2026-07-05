@@ -16,7 +16,6 @@ def test_find_mismatches_flags_disagreements(dataset):
     m = mismatches[0]
     assert m.item_id == items[0].item_id
     assert m.label == "robin"
-    assert m.subject == "robin"  # falls back to label when subject is unset
     assert m.predicted == "sparrow"
 
 

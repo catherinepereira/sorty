@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "./Modal";
 import { api } from "../api";
+import { prettyClass } from "../classname";
 
 /**
  * Fetch images for a dataset. Pick specific classes or leave the picker empty for all,
@@ -96,7 +97,7 @@ export function GenerateDialog({
                     : "border-border text-muted border"
                 }`}
               >
-                {c}
+                {prettyClass(c)}
               </button>
             ))}
           </div>

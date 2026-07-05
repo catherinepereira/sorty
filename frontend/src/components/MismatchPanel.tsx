@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
+import { prettyClass } from "../classname";
 import type { Prediction } from "../types";
 
 export function MismatchPanel({
@@ -55,15 +56,16 @@ export function MismatchPanel({
             >
               <img
                 src={m.url}
-                alt={m.subject}
+                alt={prettyClass(m.label)}
                 className="aspect-square w-full object-cover"
                 loading="lazy"
               />
               <div className="p-2 text-sm">
                 <p>
-                  labeled <span className="font-medium">{m.label}</span>
+                  labeled{" "}
+                  <span className="font-medium">{prettyClass(m.label)}</span>
                 </p>
-                <p className="text-accent">predicted {m.predicted}</p>
+                <p className="text-accent">predicted {prettyClass(m.predicted)}</p>
                 <div className="mt-2 flex gap-2">
                   <button
                     className="bg-primary flex-1 rounded px-2 py-1 text-xs text-white"

@@ -13,7 +13,6 @@ def _progress():
 
 def test_crossval_maps_flagged_paths_to_predictions(dataset):
     ds, root = dataset
-    ds.items[0].subject = "American Robin"
     flagged_item = ds.items[0]
 
     def fake_crossval(r, items, *, folds, epochs, on_progress):
@@ -31,7 +30,7 @@ def test_crossval_maps_flagged_paths_to_predictions(dataset):
     assert len(result) == 1
     m = result[0]
     assert m.item_id == flagged_item.item_id
-    assert m.subject == "American Robin"
+    assert m.label == flagged_item.label
     assert m.predicted == "sparrow"
 
 

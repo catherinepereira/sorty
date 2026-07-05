@@ -89,7 +89,7 @@ def test_delete_restore_roundtrip(with_dataset):
 
 def test_move_to_class_relabels_selected(with_dataset):
     items = with_dataset.get("/api/datasets/birds").json()["items"]
-    robins = [i["id"] for i in items if i["subject"] == "robin"]
+    robins = [i["id"] for i in items if i["label"] == "robin"]
 
     r = with_dataset.post(
         "/api/datasets/birds/move-to-class",
@@ -98,7 +98,7 @@ def test_move_to_class_relabels_selected(with_dataset):
     assert r.json() == {"moved": 3}
 
     after = with_dataset.get("/api/datasets/birds").json()["items"]
-    assert all(i["subject"] == "sparrow" for i in after if i["id"] in robins)
+    assert all(i["label"] == "sparrow" for i in after if i["id"] in robins)
     # every moved file now lives under the sparrow folder
     for i in after:
         if i["id"] in robins:
@@ -112,7 +112,8 @@ def test_move_to_missing_class_creates_it(with_dataset):
         json={"item_ids": [victim], "subject": "Owl"},
     )
     body = with_dataset.get("/api/datasets/birds").json()
-    assert "Owl" in body["subjects"]
+    # the target is stored as its slug
+    assert "owl" in body["subjects"]
 
 
 def test_empty_bin_is_permanent(with_dataset):
@@ -132,7 +133,6 @@ def test_relabel_moves_item(with_dataset):
     )
     assert r.status_code == 200
     assert r.json()["item"]["label"] == "barn-owl"
-    assert r.json()["item"]["subject"] == "Barn Owl"
 
 
 def test_set_status(with_dataset):
@@ -328,8 +328,9 @@ def test_set_subjects(with_dataset):
         "/api/datasets/birds/subjects", json={"subjects": ["Owl", "owl", "Hawk"]}
     )
     assert r.status_code == 200
-    assert r.json()["subjects"] == ["Owl", "Hawk"]
-    assert with_dataset.get("/api/datasets/birds").json()["subjects"] == ["Owl", "Hawk"]
+    # classes are stored as deduped slugs
+    assert r.json()["subjects"] == ["owl", "hawk"]
+    assert with_dataset.get("/api/datasets/birds").json()["subjects"] == ["owl", "hawk"]
 
 
 def test_delete_by_source_bins_items(with_dataset):

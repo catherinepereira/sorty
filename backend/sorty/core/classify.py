@@ -37,7 +37,6 @@ IMAGENET_STD = [0.229, 0.224, 0.225]
 class Prediction:
     item_id: str
     label: str
-    subject: str
     predicted: str
     local_path: str
 
@@ -282,8 +281,7 @@ def find_mismatches(items: list[DatasetItem], predictions: dict[str, str]) -> li
             continue
         out.append(Prediction(
             item_id=item.item_id, label=item.label,
-            subject=item.subject or item.label, predicted=predicted,
-            local_path=item.local_path,
+            predicted=predicted, local_path=item.local_path,
         ))
     return out
 

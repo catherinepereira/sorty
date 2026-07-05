@@ -32,7 +32,6 @@ def test_relabel_moves_file_and_updates_manifest(dataset):
     annotate.set_label(ds, root, item.item_id, "Blue Jay")
 
     assert item.label == "blue-jay"
-    assert item.subject == "Blue Jay"
     new_path = root / item.local_path
     assert new_path.exists()
     assert not old_path.exists()
@@ -41,7 +40,7 @@ def test_relabel_moves_file_and_updates_manifest(dataset):
     assert item.item_id in item.local_path
 
 
-def test_relabel_same_slug_updates_subject_without_moving(dataset):
+def test_relabel_same_slug_keeps_file(dataset):
     ds, root = dataset
     item = ds.items[0]
     before = item.local_path
@@ -49,7 +48,6 @@ def test_relabel_same_slug_updates_subject_without_moving(dataset):
     annotate.set_label(ds, root, item.item_id, "ROBIN")
     assert item.local_path == before
     assert item.label == "robin"
-    assert item.subject == "ROBIN"
 
 
 def test_missing_item_raises(dataset):

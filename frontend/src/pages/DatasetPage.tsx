@@ -16,12 +16,20 @@ import { JobProgress } from "../components/JobProgress";
 import { MismatchPanel } from "../components/MismatchPanel";
 import { FilterSidebar, type Filters } from "../components/FilterSidebar";
 import { Select } from "../components/Select";
-import { PencilIcon, RefreshIcon, TrashIcon } from "../components/icons";
+import { CloseIcon, PencilIcon, RefreshIcon, TrashIcon } from "../components/icons";
 import type { Item, JobState, Prediction, Status } from "../types";
 import { statusLabel } from "../status";
+import { prettyClass } from "../classname";
 import { clearActiveJob, getActiveJob, setActiveJob } from "../activeJobs";
 
 type DialogName = "generate" | "rename" | null;
+
+// banner colors: green for a completed sync, red for an error, amber for filter/info
+const BANNER_TONE = {
+  success: "border-good/30 bg-good/10 text-good",
+  error: "border-bad/30 bg-bad/10 text-bad",
+  info: "border-warn/30 bg-warn/10 text-warn",
+} as const;
 
 export function DatasetPage() {
   const { name = "" } = useParams();
@@ -43,7 +51,12 @@ export function DatasetPage() {
   const [openItem, setOpenItem] = useState<Item | null>(null);
   const [dialog, setDialog] = useState<DialogName>(null);
   const [mismatches, setMismatches] = useState<Prediction[] | null>(null);
-  const [banner, setBanner] = useState("");
+  const [banner, setBanner] = useState<{
+    text: string;
+    tone: "info" | "success" | "error";
+  } | null>(null);
+  const notify = (text: string, tone: "info" | "success" | "error" = "info") =>
+    setBanner({ text, tone });
   const [renameError, setRenameError] = useState("");
   const [flaggedIds, setFlaggedIds] = useState<string[] | null>(null);
   // set for exact dedup: each inner list is one duplicate set, rendered on its own row
@@ -68,7 +81,7 @@ export function DatasetPage() {
     const flagged = flaggedIds ? new Set(flaggedIds) : null;
     const filtered = items.filter((i) => {
       if (flagged && !flagged.has(i.id)) return false;
-      if (filters.classes.size && !filters.classes.has(i.subject)) return false;
+      if (filters.classes.size && !filters.classes.has(i.label)) return false;
       if (filters.sources.size && !filters.sources.has(i.source)) return false;
       if (filters.statuses.size && !filters.statuses.has(i.status)) return false;
       return true;
@@ -94,7 +107,7 @@ export function DatasetPage() {
       const label = mode === "exact" ? "duplicate" : "outlier";
       setFlaggedIds(ids);
       setDupeGroups(result.groups ?? null);
-      setBanner(
+      notify(
         ids.length
           ? `Filtered to ${ids.length} possible ${label}${ids.length === 1 ? "" : "s"}. Review and delete, or clear the filter.`
           : `No ${label}s found.`,
@@ -103,7 +116,7 @@ export function DatasetPage() {
     }
     clearActiveJob(name);
     refresh();
-    if (job.status === "error") setBanner(job.error);
+    if (job.status === "error") notify(job.error, "error");
   };
   const { job, start, running, clear } = useJob(onJobDone);
 
@@ -121,7 +134,7 @@ export function DatasetPage() {
   }, [name, load, start]);
 
   const runJob = async (fn: () => Promise<{ job_id: string }>) => {
-    setBanner("");
+    setBanner(null);
     setMismatches(null);
     setDialog(null);
     clear();
@@ -130,12 +143,12 @@ export function DatasetPage() {
       setActiveJob(name, job_id);
       start(job_id);
     } catch (e) {
-      setBanner(e instanceof ApiError ? e.message : "Could not start the job");
+      notify(e instanceof ApiError ? e.message : "Could not start the job", "error");
     }
   };
 
   const runInfer = async () => {
-    setBanner("");
+    setBanner(null);
     setMismatches(null);
     clear();
     try {
@@ -146,16 +159,16 @@ export function DatasetPage() {
           window.clearInterval(poll);
           if (state.status === "done")
             setMismatches(state.result as Prediction[]);
-          else setBanner(state.error);
+          else notify(state.error, "error");
         }
       }, 700);
     } catch (e) {
-      setBanner(e instanceof ApiError ? e.message : "Could not run inference");
+      notify(e instanceof ApiError ? e.message : "Could not run inference", "error");
     }
   };
 
   const runDedup = async (mode: "exact" | "outliers") => {
-    setBanner("");
+    setBanner(null);
     setMismatches(null);
     setFlaggedIds(null);
     setDupeGroups(null);
@@ -166,14 +179,14 @@ export function DatasetPage() {
       start(job_id);
     } catch (e) {
       dedupMode.current = null;
-      setBanner(e instanceof ApiError ? e.message : "Could not run the scan");
+      notify(e instanceof ApiError ? e.message : "Could not run the scan", "error");
     }
   };
 
   const clearFlagged = () => {
     setFlaggedIds(null);
     setDupeGroups(null);
-    setBanner("");
+    setBanner(null);
   };
 
   const rename = async (newName: string) => {
@@ -188,13 +201,13 @@ export function DatasetPage() {
   };
 
   const refreshFromDisk = async () => {
-    setBanner("");
+    setBanner(null);
     try {
       const { added, pruned } = await api.refresh(name);
-      setBanner(`Refreshed: ${added} added, ${pruned} pruned.`);
+      notify(`Refreshed: ${added} added, ${pruned} pruned`, "success");
       refresh();
     } catch (e) {
-      setBanner(e instanceof ApiError ? e.message : "Could not refresh");
+      notify(e instanceof ApiError ? e.message : "Could not refresh", "error");
     }
   };
 
@@ -290,20 +303,6 @@ export function DatasetPage() {
         }
       />
 
-      {banner && (
-        <div className="border-warn/30 bg-warn/10 text-warn mb-4 flex items-center gap-3 rounded-lg border px-4 py-2 text-sm">
-          <span>{banner}</span>
-          {flaggedIds && (
-            <button
-              className="hover:text-text ml-auto underline"
-              onClick={clearFlagged}
-            >
-              Clear filter
-            </button>
-          )}
-        </div>
-      )}
-
       <Expandable title="Summary">
         <SummaryPanel datasetName={name} onChanged={refresh} />
       </Expandable>
@@ -317,6 +316,30 @@ export function DatasetPage() {
           onClassify={runInfer}
         />
       </Expandable>
+
+      {banner && (
+        <div
+          className={`mb-4 flex items-center gap-3 rounded-lg border px-4 py-2 text-sm ${BANNER_TONE[banner.tone]}`}
+        >
+          <span>{banner.text}</span>
+          {flaggedIds && (
+            <button
+              className="ml-auto underline hover:opacity-80"
+              onClick={clearFlagged}
+            >
+              Clear filter
+            </button>
+          )}
+          <button
+            className={`${flaggedIds ? "" : "ml-auto"} hover:opacity-80`}
+            onClick={() => setBanner(null)}
+            aria-label="Dismiss"
+            title="Dismiss"
+          >
+            <CloseIcon className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {job && running && (
         <div className="mb-4">
@@ -375,7 +398,7 @@ export function DatasetPage() {
             className="w-40"
             value=""
             placeholder="Move to class"
-            options={detail.subjects.map((c) => ({ value: c, label: c }))}
+            options={detail.subjects.map((c) => ({ value: c, label: prettyClass(c) }))}
             onChange={(v) => moveSelectedTo(v)}
           />
           <button
