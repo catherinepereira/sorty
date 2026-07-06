@@ -19,17 +19,17 @@ from sorty.core import (
     DatasetItem,
     ReviewStatus,
     find_duplicate_groups,
-    find_outliers,
     has_manifest,
     load_dataset,
     save_dataset,
 )
 
 from sorty import annotate, classes, classify, generate, recyclebin, refresh, summary, workspace
-from sorty.config import APP_NAME, workspace_root
-from sorty.jobs import JobManager, JobProgress
+from sorty.config import APP_NAME, contact_email, set_contact_email, workspace_root
+from sorty.core.sources import REGISTRY
+from sorty.jobs import JobManager, JobProgress, bridge
 from sorty.media import MEDIA_PREFIX, media_url, resolve_image
-from sorty.recyclebin import is_binned
+from sorty.recyclebin import bin_path, is_binned
 
 app = FastAPI(title=APP_NAME)
 jobs = JobManager()
@@ -39,11 +39,13 @@ jobs = JobManager()
 
 def _item_view(item: DatasetItem, root: Path) -> dict[str, Any]:
     local = Path(item.local_path)
+    # a binned item's file sits under .sorty/recyclebin/, not its class folder
+    file_path = bin_path(root, item) if is_binned(item) else root / item.local_path
     return {
         "id": item.item_id,
         "label": item.label,
         "status": item.review_status.value,
-        "url": media_url(root / item.local_path),
+        "url": media_url(file_path),
         "binned": is_binned(item),
         "source": item.source,
         "source_url": item.source_url,
@@ -51,15 +53,7 @@ def _item_view(item: DatasetItem, root: Path) -> dict[str, Any]:
         "local_path": item.local_path,
         "directory": str(local.parent),
         "filename": local.name,
-    }
-
-
-def _prediction_view(p: classify.Prediction, root: Path) -> dict[str, Any]:
-    return {
-        "id": p.item_id,
-        "label": p.label,
-        "predicted": p.predicted,
-        "url": media_url(root / p.local_path),
+        "predicted": item.predicted_label,
     }
 
 
@@ -116,19 +110,21 @@ class StatusManyBody(BaseModel):
     status: ReviewStatus
 
 
+class CropBody(BaseModel):
+    # the box to keep, in pixels of the original image
+    left: int
+    top: int
+    width: int
+    height: int
+
+
 class IdsBody(BaseModel):
     item_ids: list[str]
 
 
-class DedupBody(BaseModel):
-    mode: str  # "exact" or "outliers"
-
-
 class TrainBody(BaseModel):
-    model: str = "mobilenet_v2"
+    folds: int = 5
     epochs: int = 8
-    val_split: float = 0.2
-    img_size: int = 224
 
 
 class RenameBody(BaseModel):
@@ -166,8 +162,29 @@ class SourceBody(BaseModel):
 # ----- capability probes -----
 
 @app.get("/api/sources")
-def list_sources() -> dict[str, list[str]]:
-    return {"sources": generate.source_names()}
+def list_sources() -> dict[str, Any]:
+    """The source list, each flagged if its API policy wants a contact email."""
+    return {
+        "sources": [
+            {"name": a.name, "requires_contact": a.requires_contact}
+            for a in REGISTRY.values()
+        ],
+        "contact_set": bool(contact_email()),
+    }
+
+
+class ContactBody(BaseModel):
+    email: str
+
+
+@app.post("/api/contact")
+def set_contact(body: ContactBody) -> dict[str, bool]:
+    """Save the contact email sources send in their User-Agent, persisted to .env."""
+    email = body.email.strip()
+    if "@" not in email or " " in email or len(email) < 3:
+        raise HTTPException(status_code=400, detail="Enter a valid email address.")
+    set_contact_email(email)
+    return {"contact_set": True}
 
 
 # ----- workspace -----
@@ -360,6 +377,39 @@ def set_status(name: str, item_id: str, body: StatusBody) -> dict[str, Any]:
     return {"item": _item_view(annotate.find_item(ds, item_id), root)}
 
 
+@app.post("/api/datasets/{name}/items/{item_id}/duplicate")
+def duplicate_item(name: str, item_id: str) -> dict[str, Any]:
+    """Copy an image under a new id, so two crops of one photo can coexist."""
+    ds, root = _load(name)
+    try:
+        copy = annotate.duplicate_item(ds, root, item_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="No such item")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    save_dataset(ds, root)
+    return {"item": _item_view(copy, root)}
+
+
+@app.post("/api/datasets/{name}/items/{item_id}/crop")
+def crop_item(name: str, item_id: str, body: CropBody) -> dict[str, Any]:
+    """Crop the item's image in place and return the item with its new dimensions."""
+    ds, root = _load(name)
+    try:
+        annotate.crop_item(
+            ds, root, item_id, body.left, body.top, body.width, body.height
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="No such item")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    save_dataset(ds, root)
+    item = annotate.find_item(ds, item_id)
+    view = _item_view(item, root)
+    view.update(summary.file_info(root, item.local_path))
+    return {"item": view}
+
+
 @app.post("/api/datasets/{name}/set-status")
 def set_status_many(name: str, body: StatusManyBody) -> dict[str, int]:
     ds, root = _load(name)
@@ -394,7 +444,7 @@ def empty_bin(name: str) -> dict[str, int]:
     return {"removed": removed}
 
 
-# ----- jobs: generate, dedup, train, infer -----
+# ----- jobs: generate, dedup, train -----
 
 @app.post("/api/datasets/{name}/generate")
 def start_generate(name: str, body: GenerateBody) -> dict[str, str]:
@@ -433,64 +483,52 @@ def _result_view(result) -> dict[str, int]:
 
 
 @app.post("/api/datasets/{name}/dedup")
-def start_dedup(name: str, body: DedupBody) -> dict[str, str]:
-    """Flag likely-bad images without touching them, for review in the grid.
+def start_dedup(name: str) -> dict[str, str]:
+    """Flag pixel-identical duplicates without touching them, for review in the grid.
 
     Returns the flagged item ids. Nothing is binned, the frontend filters the grid to
     the flagged set so the user decides what to delete.
     """
     root = _root(name)
-    if body.mode not in ("exact", "outliers"):
-        raise HTTPException(status_code=400, detail="mode must be exact or outliers")
-    if body.mode == "outliers" and not classify.torch_available():
-        raise HTTPException(status_code=503, detail="Outlier detection needs PyTorch")
 
     def work(p: JobProgress):
         ds = load_dataset(root)
         live = [i for i in ds.items if not is_binned(i)]
-        p.sync(1, 0, f"Scanning for {body.mode}")
-        if body.mode == "exact":
-            # keep the group structure so the grid can put each duplicate set on its own
-            # row, plus a flat id list for the filter that hides everything else
-            groups = [[i.item_id for i in g] for g in find_duplicate_groups(live, root)]
-            ids = [item_id for g in groups for item_id in g]
-            p.sync(1, 1, f"Flagged {len(ids)}")
-            return {"flagged": ids, "groups": groups}
-        ids = [i.item_id for i in find_outliers(live, root)]
-        p.sync(1, 1, f"Flagged {len(ids)}")
-        return {"flagged": ids}
+        # keep the group structure so the grid can put each duplicate set on its own
+        # row, plus a flat id list for the filter that hides everything else
+        found = find_duplicate_groups(live, root, on_progress=bridge(p))
+        groups = [[i.item_id for i in g] for g in found]
+        ids = [item_id for g in groups for item_id in g]
+        p.sync(max(len(live), 1), len(live), f"Flagged {len(ids)}")
+        return {"flagged": ids, "groups": groups}
 
     return {"job_id": jobs.submit(work)}
 
 
 @app.post("/api/datasets/{name}/train")
 def start_train(name: str, body: TrainBody) -> dict[str, str]:
+    """Cross-validate a model over the dataset and store each item's predicted class.
+
+    Every image is predicted by a fold model that never trained on it. The prediction
+    lands on the item as predicted_label, which the grid filters on.
+    """
     root = _root(name)
     if not classify.torch_available():
         raise HTTPException(status_code=503, detail="Training needs PyTorch")
 
     def work(p: JobProgress):
         ds = load_dataset(root)
-        live = [i for i in ds.items if not is_binned(i)]
-        return classify.train(
-            root, live, body.model, body.epochs, body.val_split, body.img_size, p
+        preds = classify.crossval(root, ds, body.folds, body.epochs, p)
+        by_id = {pred.item_id: pred.predicted for pred in preds}
+        for item in ds.items:
+            item.predicted_label = by_id.get(item.item_id)
+        ds.touch()
+        save_dataset(ds, root)
+        mismatched = sum(
+            1 for i in ds.items
+            if i.predicted_label is not None and i.predicted_label != i.label
         )
-
-    return {"job_id": jobs.submit(work)}
-
-
-@app.post("/api/datasets/{name}/infer")
-def start_infer(name: str) -> dict[str, str]:
-    root = _root(name)
-    if not classify.torch_available():
-        raise HTTPException(status_code=503, detail="Inference needs PyTorch")
-    if not classify.model_exists(root):
-        raise HTTPException(status_code=400, detail="Train a model first")
-
-    def work(p: JobProgress):
-        ds = load_dataset(root)
-        preds = classify.infer_all(root, ds, p)
-        return [_prediction_view(pred, root) for pred in preds]
+        return {"predicted": len(by_id), "mismatched": mismatched}
 
     return {"job_id": jobs.submit(work)}
 
@@ -507,4 +545,7 @@ def get_job(job_id: str) -> dict[str, Any]:
 
 @app.get(MEDIA_PREFIX + "/{rel:path}")
 def serve_media(rel: str) -> FileResponse:
-    return FileResponse(resolve_image(rel))
+    # no-cache forces revalidation, so an image edited in place (crop) shows its new
+    # pixels after a reload instead of the browser's cached copy. Unchanged files still
+    # answer 304 via the ETag, so the grid stays cheap
+    return FileResponse(resolve_image(rel), headers={"Cache-Control": "no-cache"})

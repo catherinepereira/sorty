@@ -30,7 +30,7 @@ export const ImageCard = memo(function ImageCard({
 
   return (
     <div
-      className={`group bg-card relative overflow-hidden rounded-xl border transition ${
+      className={`group bg-card relative overflow-hidden rounded-lg border transition ${
         selected ? "border-primary ring-primary/40 ring-2" : "border-border"
       }`}
     >

@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Mascot, type Mood } from "./Mascot";
-import { BackIcon, HomeIcon } from "./icons";
+import { BackIcon, GearIcon, HomeIcon } from "./icons";
 import { ThemeToggle } from "./ThemeToggle";
+import { SettingsDialog } from "./SettingsDialog";
 import { APP_NAME } from "../config";
 
 export function Header({
@@ -23,6 +25,7 @@ export function Header({
   actions?: React.ReactNode;
 }) {
   const nav = useNavigate();
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const isHome = backLabel === "Home";
   return (
     <header className="mb-6 flex items-center gap-4">
@@ -48,8 +51,23 @@ export function Header({
         </div>
         {subtitle && <p className="text-muted">{subtitle}</p>}
       </div>
-      {actions}
-      <ThemeToggle />
+      {/* one flex row for every header button, so the gaps all match the action groups */}
+      <div className="flex items-center gap-2">
+        {actions}
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 flex h-10 w-10 items-center justify-center rounded-lg border"
+          title="Settings"
+          aria-label="Settings"
+        >
+          <GearIcon className="h-5 w-5" />
+        </button>
+        <ThemeToggle />
+      </div>
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
     </header>
   );
 }

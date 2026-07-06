@@ -41,16 +41,25 @@ def _safe_path(root: Path, local_path: str) -> Path | None:
     return target
 
 
+def _created_at(path: Path) -> float | None:
+    """When the file landed on disk. st_ctime is creation time on Windows."""
+    try:
+        return path.stat().st_ctime
+    except OSError:
+        return None
+
+
 def file_info(root: Path, local_path: str) -> dict:
-    """Dimensions and byte size for one image, for the item detail view."""
+    """Dimensions, byte size, and ingest time for one image, for the item detail view."""
     path = _safe_path(root, local_path)
     if path is None:
-        return {"width": None, "height": None, "bytes": None}
+        return {"width": None, "height": None, "bytes": None, "ingested": None}
     dims = _dimensions(path)
     return {
         "width": dims[0] if dims else None,
         "height": dims[1] if dims else None,
         "bytes": _size(path),
+        "ingested": _created_at(path),
     }
 
 

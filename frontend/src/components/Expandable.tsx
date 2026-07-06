@@ -18,7 +18,7 @@ export function Expandable({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="border-border bg-card mb-3 overflow-hidden rounded-xl border">
+    <div className="border-border bg-card mb-3 overflow-hidden rounded-lg border">
       <button
         onClick={() => setOpen((o) => !o)}
         className="hover:bg-bg flex w-full items-center gap-2 px-4 py-3 text-left font-medium"
@@ -27,7 +27,10 @@ export function Expandable({
         {icon}
         <span>{title}</span>
       </button>
-      {open && <div className="border-border border-t px-4 py-4">{children}</div>}
+      {/* hidden, not unmounted, so children keep their state and fetched data */}
+      <div className={open ? "border-border border-t px-4 py-4" : "hidden"}>
+        {children}
+      </div>
     </div>
   );
 }

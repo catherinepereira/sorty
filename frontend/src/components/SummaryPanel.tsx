@@ -16,9 +16,12 @@ import { humanBytes } from "../format";
 export function SummaryPanel({
   datasetName,
   onChanged,
+  reloadToken,
 }: {
   datasetName: string;
   onChanged: () => void;
+  // refetch when this changes, so grid edits reflect here without a remount
+  reloadToken?: unknown;
 }) {
   const [stats, setStats] = useState<DatasetSummaryStats | null>(null);
   const load = () => api.getSummary(datasetName).then(setStats);
@@ -26,7 +29,7 @@ export function SummaryPanel({
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [datasetName]);
+  }, [datasetName, reloadToken]);
 
   const afterEdit = () => {
     load();
@@ -196,7 +199,9 @@ function ClassManager({
       setEditing(null);
       onChanged();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not rename the class");
+      setError(
+        e instanceof ApiError ? e.message : "Could not rename the class",
+      );
     } finally {
       setBusy(false);
     }
@@ -211,7 +216,9 @@ function ClassManager({
 
   const addMany = async (additions: string[]) => {
     const have = new Set(names.map((n) => n.toLowerCase()));
-    const fresh = additions.filter((a) => a.trim() && !have.has(a.toLowerCase()));
+    const fresh = additions.filter(
+      (a) => a.trim() && !have.has(a.toLowerCase()),
+    );
     if (!fresh.length) return;
     setBusy(true);
     setError("");
@@ -330,7 +337,12 @@ function ClassManager({
           />
           <button
             onClick={runMerge}
-            disabled={busy || !target || merging.size < 1 || (merging.size === 1 && merging.has(target))}
+            disabled={
+              busy ||
+              !target ||
+              merging.size < 1 ||
+              (merging.size === 1 && merging.has(target))
+            }
             className="bg-primary rounded-lg px-3 py-1.5 font-medium text-white disabled:opacity-40"
           >
             Merge
@@ -350,4 +362,3 @@ function Stat({ label, value }: { label: string; value: number | string }) {
     </div>
   );
 }
-

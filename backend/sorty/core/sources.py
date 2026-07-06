@@ -39,6 +39,8 @@ class SourceAdapter:
     name: str
     description: str
     fetch: FetchFn
+    # True for APIs whose usage policy wants a contact email in the User-Agent
+    requires_contact: bool = False
 
 
 async def _fetch_inaturalist(subject: str, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
@@ -307,6 +309,7 @@ REGISTRY: dict[str, SourceAdapter] = {
             "Research-grade nature observation photos from iNaturalist."
         ),
         fetch=_fetch_inaturalist,
+        requires_contact=True,
     ),
     "openverse": SourceAdapter(
         name="openverse",
@@ -321,6 +324,7 @@ REGISTRY: dict[str, SourceAdapter] = {
             "Freely licensed photos and diagrams from Wikimedia Commons."
         ),
         fetch=_fetch_wikimedia_commons,
+        requires_contact=True,
     ),
 }
 

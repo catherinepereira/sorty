@@ -13,11 +13,15 @@ import { SummaryPanel } from "../components/SummaryPanel";
 import { MLToolsPanel } from "../components/MLToolsPanel";
 import { Expandable } from "../components/Expandable";
 import { JobProgress } from "../components/JobProgress";
-import { MismatchPanel } from "../components/MismatchPanel";
 import { FilterSidebar, type Filters } from "../components/FilterSidebar";
 import { Select } from "../components/Select";
-import { CloseIcon, PencilIcon, RefreshIcon, TrashIcon } from "../components/icons";
-import type { Item, JobState, Prediction, Status } from "../types";
+import {
+  CloseIcon,
+  PencilIcon,
+  RefreshIcon,
+  TrashIcon,
+} from "../components/icons";
+import type { Item, JobState, Status } from "../types";
 import { statusLabel } from "../status";
 import { prettyClass } from "../classname";
 import { clearActiveJob, getActiveJob, setActiveJob } from "../activeJobs";
@@ -50,7 +54,6 @@ export function DatasetPage() {
 
   const [openItem, setOpenItem] = useState<Item | null>(null);
   const [dialog, setDialog] = useState<DialogName>(null);
-  const [mismatches, setMismatches] = useState<Prediction[] | null>(null);
   const [banner, setBanner] = useState<{
     text: string;
     tone: "info" | "success" | "error";
@@ -58,6 +61,7 @@ export function DatasetPage() {
   const notify = (text: string, tone: "info" | "success" | "error" = "info") =>
     setBanner({ text, tone });
   const [renameError, setRenameError] = useState("");
+  const [query, setQuery] = useState("");
   const [flaggedIds, setFlaggedIds] = useState<string[] | null>(null);
   // set for exact dedup: each inner list is one duplicate set, rendered on its own row
   const [dupeGroups, setDupeGroups] = useState<string[][] | null>(null);
@@ -65,6 +69,7 @@ export function DatasetPage() {
     classes: new Set(),
     sources: new Set(),
     statuses: new Set(),
+    classification: new Set(),
   });
 
   const items = useMemo(() => detail?.items ?? [], [detail]);
@@ -77,13 +82,37 @@ export function DatasetPage() {
     return [...seen].sort();
   }, [detail, items]);
 
+  const classCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const i of items) counts[i.label] = (counts[i.label] ?? 0) + 1;
+    return counts;
+  }, [items]);
+
+  const hasPredictions = useMemo(
+    () => items.some((i) => i.predicted !== null),
+    [items],
+  );
+
   const visible = useMemo(() => {
     const flagged = flaggedIds ? new Set(flaggedIds) : null;
+    const q = query.trim().toLowerCase();
     const filtered = items.filter((i) => {
       if (flagged && !flagged.has(i.id)) return false;
+      if (q) {
+        const hay =
+          `${i.title} ${i.source_url} ${i.label} ${prettyClass(i.label)}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
       if (filters.classes.size && !filters.classes.has(i.label)) return false;
       if (filters.sources.size && !filters.sources.has(i.source)) return false;
-      if (filters.statuses.size && !filters.statuses.has(i.status)) return false;
+      if (filters.statuses.size && !filters.statuses.has(i.status))
+        return false;
+      if (filters.classification.size) {
+        // images without a prediction match neither bucket, so any classification filter hides them
+        if (!i.predicted) return false;
+        const bucket = i.predicted === i.label ? "correct" : "mismatch";
+        if (!filters.classification.has(bucket)) return false;
+      }
       return true;
     });
     if (!flaggedIds) return filtered;
@@ -93,37 +122,47 @@ export function DatasetPage() {
     return [...filtered].sort(
       (a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0),
     );
-  }, [items, filters, flaggedIds]);
+  }, [items, filters, flaggedIds, query]);
 
   // set while a flag-and-filter dedup job runs, so onJobDone can read its result
-  const dedupMode = useRef<"exact" | "outliers" | null>(null);
+  const dedupRunning = useRef(false);
 
   const onJobDone = (job: JobState) => {
-    const mode = dedupMode.current;
-    dedupMode.current = null;
-    if (mode && job.status === "done") {
-      const result = job.result as { flagged: string[]; groups?: string[][] };
+    const wasDedup = dedupRunning.current;
+    dedupRunning.current = false;
+    if (wasDedup && job.status === "done") {
+      const result = job.result as { flagged: string[]; groups: string[][] };
       const ids = result.flagged;
-      const label = mode === "exact" ? "duplicate" : "outlier";
+      if (!ids.length) {
+        // nothing flagged, leave the grid unfiltered
+        notify("No duplicates found.");
+        return;
+      }
       setFlaggedIds(ids);
-      setDupeGroups(result.groups ?? null);
+      setDupeGroups(result.groups);
       notify(
-        ids.length
-          ? `Filtered to ${ids.length} possible ${label}${ids.length === 1 ? "" : "s"}. Review and delete, or clear the filter.`
-          : `No ${label}s found.`,
+        `Filtered to ${ids.length} possible duplicate${ids.length === 1 ? "" : "s"}. Review and delete, or clear the filter.`,
       );
       return;
     }
     clearActiveJob(name);
     refresh();
-    if (job.status === "error") notify(job.error, "error");
+    if (job.status !== "done") {
+      if (job.status === "error") notify(job.error, "error");
+      return;
+    }
+    const result = job.result as {
+      predicted?: number;
+      mismatched?: number;
+    } | null;
+    if (result && result.mismatched !== undefined) {
+      notify(
+        `Model classified ${result.predicted} images, ${result.mismatched} disagree with their label. Filter by classification to review them.`,
+        "success",
+      );
+    }
   };
   const { job, start, running, clear } = useJob(onJobDone);
-
-  const inferJob = useJob((state) => {
-    if (state.status === "done") setMismatches(state.result as Prediction[]);
-    else if (state.status === "error") notify(state.error, "error");
-  });
 
   useEffect(() => {
     load(name);
@@ -140,7 +179,6 @@ export function DatasetPage() {
 
   const runJob = async (fn: () => Promise<{ job_id: string }>) => {
     setBanner(null);
-    setMismatches(null);
     setDialog(null);
     clear();
     try {
@@ -148,35 +186,28 @@ export function DatasetPage() {
       setActiveJob(name, job_id);
       start(job_id);
     } catch (e) {
-      notify(e instanceof ApiError ? e.message : "Could not start the job", "error");
+      notify(
+        e instanceof ApiError ? e.message : "Could not start the job",
+        "error",
+      );
     }
   };
 
-  const runInfer = async () => {
+  const runDedup = async () => {
     setBanner(null);
-    setMismatches(null);
-    clear();
-    try {
-      const { job_id } = await api.infer(name);
-      inferJob.start(job_id);
-    } catch (e) {
-      notify(e instanceof ApiError ? e.message : "Could not run inference", "error");
-    }
-  };
-
-  const runDedup = async (mode: "exact" | "outliers") => {
-    setBanner(null);
-    setMismatches(null);
     setFlaggedIds(null);
     setDupeGroups(null);
     clear();
-    dedupMode.current = mode;
+    dedupRunning.current = true;
     try {
-      const { job_id } = await api.dedup(name, mode);
+      const { job_id } = await api.dedup(name);
       start(job_id);
     } catch (e) {
-      dedupMode.current = null;
-      notify(e instanceof ApiError ? e.message : "Could not run the scan", "error");
+      dedupRunning.current = false;
+      notify(
+        e instanceof ApiError ? e.message : "Could not run the scan",
+        "error",
+      );
     }
   };
 
@@ -234,6 +265,21 @@ export function DatasetPage() {
     [name, refresh],
   );
 
+  // duplicate from the popup, then open the copy so it can be cropped right away
+  const duplicateOne = useCallback(
+    async (id: string) => {
+      const { item } = await api.duplicateItem(name, id);
+      // slot the copy into the navigation order next to its original
+      const seq = panelSeq.current;
+      const at = seq.indexOf(id);
+      if (at >= 0) seq.splice(at + 1, 0, item.id);
+      else seq.push(item.id);
+      setOpenItem(item);
+      refresh();
+    },
+    [name, refresh],
+  );
+
   const moveSelectedTo = async (subject: string) => {
     const ids = [...selected];
     if (!ids.length || !subject) return;
@@ -255,6 +301,34 @@ export function DatasetPage() {
   const toggleItem = (id: string) => {
     if (!selectMode && !selected.has(id)) setSelectMode(true);
     toggle(id);
+  };
+
+  // the popup's navigation order, frozen when it opens. An edit that drops the image
+  // out of the current filters (e.g. marking it valid under an Unreviewed filter) then
+  // keeps the arrows, so a review pass can keep stepping through the sequence
+  const panelSeq = useRef<string[]>([]);
+  const openPanel = useCallback(
+    (item: Item) => {
+      panelSeq.current = visible.map((i) => i.id);
+      setOpenItem(item);
+    },
+    [visible],
+  );
+
+  const itemsById = useMemo(
+    () => new Map(items.map((i) => [i.id, i])),
+    [items],
+  );
+  const openIndex = openItem ? panelSeq.current.indexOf(openItem.id) : -1;
+  const openAdjacent = (delta: number) => {
+    const seq = panelSeq.current;
+    let idx = openIndex + delta;
+    // skip entries binned or deleted since the sequence was captured
+    while (idx >= 0 && idx < seq.length && !itemsById.has(seq[idx]))
+      idx += delta;
+    const next =
+      idx >= 0 && idx < seq.length ? itemsById.get(seq[idx]) : undefined;
+    if (next) setOpenItem(next);
   };
 
   if (loading || !detail)
@@ -282,7 +356,7 @@ export function DatasetPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={refreshFromDisk}
-              className="border-border text-muted hover:bg-card flex h-10 w-10 items-center justify-center rounded-lg border"
+              className="border-good/30 bg-good/10 text-good hover:bg-good/20 flex h-10 w-10 items-center justify-center rounded-lg border"
               title="Refresh from disk"
               aria-label="Refresh from disk"
             >
@@ -290,7 +364,7 @@ export function DatasetPage() {
             </button>
             <Link
               to={`/d/${name}/bin`}
-              className="border-border text-muted hover:bg-card flex h-10 w-10 items-center justify-center rounded-lg border"
+              className="border-bad/30 bg-bad/10 text-bad hover:bg-bad/20 flex h-10 w-10 items-center justify-center rounded-lg border"
               title="Recycle bin"
               aria-label="Recycle bin"
             >
@@ -301,18 +375,22 @@ export function DatasetPage() {
       />
 
       <Expandable title="Summary">
-        <SummaryPanel datasetName={name} onChanged={refresh} />
-      </Expandable>
-
-      <Expandable title="Tools" defaultOpen>
-        <MLToolsPanel
-          onGenerate={() => setDialog("generate")}
-          onDuplicates={() => runDedup("exact")}
-          onOutliers={() => runDedup("outliers")}
-          onTrain={() => runJob(() => api.train(name, "mobilenet_v2", 8))}
-          onClassify={runInfer}
+        <SummaryPanel
+          datasetName={name}
+          onChanged={refresh}
+          reloadToken={detail}
         />
       </Expandable>
+
+      <div className="mb-4">
+        <Expandable title="Tools" defaultOpen>
+          <MLToolsPanel
+            onGenerate={() => setDialog("generate")}
+            onDuplicates={runDedup}
+            onTrain={() => runJob(() => api.train(name))}
+          />
+        </Expandable>
+      </div>
 
       {banner && (
         <div
@@ -344,17 +422,15 @@ export function DatasetPage() {
         </div>
       )}
 
-      {mismatches && (
-        <MismatchPanel
-          datasetName={name}
-          mismatches={mismatches}
-          onClose={() => setMismatches(null)}
-          onChanged={refresh}
-        />
-      )}
-
       {detail.items.length > 0 && (
-        <div className="mb-4 flex justify-end">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <input
+            type="search"
+            className="border-border focus:border-primary bg-card max-w-4xl flex-1 rounded-lg border px-3 py-2 text-sm outline-none"
+            placeholder="Search title, source URL, or class"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
           <button
             onClick={() => setSelectMode(!selectMode)}
             className={`rounded-lg px-4 py-2 text-sm font-medium ${
@@ -395,7 +471,10 @@ export function DatasetPage() {
             className="w-40"
             value=""
             placeholder="Move to class"
-            options={detail.subjects.map((c) => ({ value: c, label: prettyClass(c) }))}
+            options={detail.subjects.map((c) => ({
+              value: c,
+              label: prettyClass(c),
+            }))}
             onChange={(v) => moveSelectedTo(v)}
           />
           <button
@@ -415,7 +494,9 @@ export function DatasetPage() {
         <div className="flex gap-5">
           <FilterSidebar
             classes={detail.subjects}
+            classCounts={classCounts}
             sources={sourceOptions}
+            hasPredictions={hasPredictions}
             filters={filters}
             setFilters={setFilters}
             shown={visible.length}
@@ -434,7 +515,7 @@ export function DatasetPage() {
                 selectMode={selectMode}
                 onToggle={toggleItem}
                 onSetSelected={setSelected}
-                onOpen={setOpenItem}
+                onOpen={openPanel}
                 onDelete={deleteOne}
               />
             ) : (
@@ -444,7 +525,7 @@ export function DatasetPage() {
                 selectMode={selectMode}
                 onToggle={toggleItem}
                 onSetSelected={setSelected}
-                onOpen={setOpenItem}
+                onOpen={openPanel}
                 onDelete={deleteOne}
               />
             )}
@@ -458,6 +539,13 @@ export function DatasetPage() {
         classes={detail.subjects}
         onClose={() => setOpenItem(null)}
         onDelete={deleteOne}
+        onDuplicate={duplicateOne}
+        onPrev={openIndex > 0 ? () => openAdjacent(-1) : undefined}
+        onNext={
+          openIndex >= 0 && openIndex < panelSeq.current.length - 1
+            ? () => openAdjacent(1)
+            : undefined
+        }
       />
       <GenerateDialog
         open={dialog === "generate"}
@@ -560,4 +648,3 @@ function ImageGrid({
     </div>
   );
 }
-

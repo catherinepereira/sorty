@@ -17,7 +17,6 @@ from sorty.core import (
     resolve_subjects,
     save_dataset,
     slugify,
-    source_names,
 )
 from sorty.core import add_images as core_add_images
 
@@ -25,7 +24,6 @@ from sorty.jobs import JobProgress, bridge
 from sorty.recyclebin import is_binned
 
 __all__ = [
-    "source_names",
     "resolve",
     "add_images",
     "set_subjects",

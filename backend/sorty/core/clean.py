@@ -17,6 +17,7 @@ import numpy as np
 
 from sorty.core.images import DecodeError, open_rgb
 from sorty.core.models import DatasetItem
+from sorty.core.progress import OnProgress, Reporter
 
 log = logging.getLogger(__name__)
 
@@ -62,7 +63,9 @@ def find_exact_duplicates(items: list[DatasetItem], dataset_root: Path) -> list[
 
 
 def find_duplicate_groups(
-    items: list[DatasetItem], dataset_root: Path
+    items: list[DatasetItem],
+    dataset_root: Path,
+    on_progress: OnProgress = None,
 ) -> list[list[DatasetItem]]:
     """Group pixel-identical images within each label, returning only groups of 2+.
 
@@ -70,11 +73,14 @@ def find_duplicate_groups(
     member of each duplicate set so they can be reviewed side by side. Groups keep the
     items' original order.
     """
+    reporter = Reporter(on_progress)
+    reporter.start(max(len(items), 1), "Scanning for duplicates")
     groups: list[list[DatasetItem]] = []
     for label_items in _group_by_label(items).values():
         by_hash: dict[str, list[DatasetItem]] = {}
         for item in label_items:
             h = _pixel_hash(dataset_root / item.local_path)
+            reporter.advance()
             if h is None:
                 continue
             by_hash.setdefault(h, []).append(item)
@@ -103,7 +109,7 @@ def _load_embedder():
     return net, tf
 
 
-def _embed(paths: list[Path], net, tf) -> np.ndarray:
+def _embed(paths: list[Path], net, tf, reporter: Reporter | None = None) -> np.ndarray:
     """L2-normalized feature vectors, one row per path. Unreadable images get a zero row.
 
     Runs in fixed-size batches so a large label group can't stack every decoded image
@@ -123,6 +129,8 @@ def _embed(paths: list[Path], net, tf) -> np.ndarray:
         with torch.no_grad():
             feats = net(torch.stack(batch))
         rows.append(torch.nn.functional.normalize(feats, dim=1).numpy())
+        if reporter is not None:
+            reporter.advance(step=len(batch))
     return np.concatenate(rows, axis=0)
 
 
@@ -130,6 +138,7 @@ def find_outliers(
     items: list[DatasetItem],
     dataset_root: Path,
     eps: float = DEFAULT_OUTLIER_EPS,
+    on_progress: OnProgress = None,
 ) -> list[DatasetItem]:
     """Within each label, flag images DBSCAN can't place in any dense cluster.
 
@@ -146,11 +155,13 @@ def find_outliers(
     if not groups:
         return []
 
+    reporter = Reporter(on_progress)
+    reporter.start(sum(len(g) for g in groups.values()), "Scanning for outliers")
     net, tf = _load_embedder()
     flagged: list[DatasetItem] = []
     for group in groups.values():
         paths = [dataset_root / i.local_path for i in group]
-        feats = _embed(paths, net, tf)
+        feats = _embed(paths, net, tf, reporter)
         labels = DBSCAN(eps=eps, min_samples=OUTLIER_MIN_SAMPLES, metric="cosine").fit_predict(feats)
         flagged.extend(item for cluster, item in zip(labels, group) if cluster == -1)
     return flagged

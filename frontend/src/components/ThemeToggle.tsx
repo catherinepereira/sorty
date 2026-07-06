@@ -25,7 +25,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={() => setTheme(next)}
-      className="text-muted hover:bg-card border-border flex h-10 w-10 items-center justify-center rounded-lg border"
+      className="border-warn/30 bg-warn/10 text-warn hover:bg-warn/20 flex h-10 w-10 items-center justify-center rounded-lg border"
       aria-label={`Switch to ${next} mode`}
       title={`Switch to ${next} mode`}
     >

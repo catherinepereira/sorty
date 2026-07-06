@@ -1,13 +1,22 @@
 import { useState } from "react";
 import { prettyClass } from "../classname";
+import { statusLabel } from "../status";
+import type { Status } from "../types";
 
 export interface Filters {
   classes: Set<string>;
   sources: Set<string>;
   statuses: Set<string>;
+  classification: Set<string>;
 }
 
 const STATUS_OPTIONS = ["pending", "valid"];
+
+const CLASSIFICATION_OPTIONS = ["correct", "mismatch"];
+const CLASSIFICATION_LABELS: Record<string, string> = {
+  correct: "Correctly classified",
+  mismatch: "Mis-classified",
+};
 
 function Section({
   title,
@@ -41,26 +50,34 @@ function CheckList({
   chosen,
   onToggle,
   renderLabel = (v) => v,
+  counts,
+  disabled = false,
 }: {
   options: string[];
   chosen: Set<string>;
   onToggle: (v: string) => void;
   renderLabel?: (value: string) => string;
+  counts?: Record<string, number>;
+  disabled?: boolean;
 }) {
   return (
     <div className="max-h-48 space-y-1 overflow-y-auto">
       {options.map((o) => (
         <label
           key={o}
-          className="hover:bg-bg flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm"
+          className={`flex items-center gap-2 rounded px-1 py-1 text-sm ${
+            disabled ? "opacity-40" : "hover:bg-bg cursor-pointer"
+          }`}
         >
           <input
             type="checkbox"
             className="accent-primary"
             checked={chosen.has(o)}
+            disabled={disabled}
             onChange={() => onToggle(o)}
           />
-          <span className="truncate">{renderLabel(o)}</span>
+          <span className="flex-1 truncate">{renderLabel(o)}</span>
+          {counts && <span className="text-muted">{counts[o] ?? 0}</span>}
         </label>
       ))}
     </div>
@@ -74,20 +91,24 @@ function CheckList({
  */
 export function FilterSidebar({
   classes,
+  classCounts,
   sources,
   filters,
   setFilters,
   shown,
   total,
+  hasPredictions,
 }: {
   classes: string[];
+  classCounts: Record<string, number>;
   sources: string[];
   filters: Filters;
   setFilters: (f: Filters) => void;
   shown: number;
   total: number;
+  hasPredictions: boolean;
 }) {
-  const toggle = (key: "classes" | "sources" | "statuses", value: string) => {
+  const toggle = (key: keyof Filters, value: string) => {
     const next = new Set(filters[key]);
     if (next.has(value)) next.delete(value);
     else next.add(value);
@@ -97,18 +118,20 @@ export function FilterSidebar({
   const active =
     filters.classes.size > 0 ||
     filters.sources.size > 0 ||
-    filters.statuses.size > 0;
+    filters.statuses.size > 0 ||
+    filters.classification.size > 0;
 
   const clearAll = () =>
     setFilters({
       classes: new Set(),
       sources: new Set(),
       statuses: new Set(),
+      classification: new Set(),
     });
 
   return (
-    <aside className="w-56 shrink-0">
-      <div className="sticky top-2">
+    <aside className="w-60 shrink-0">
+      <div className="border-border bg-card sticky top-2 rounded-lg border p-4">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-semibold">Filters</h2>
           {active && (
@@ -124,12 +147,22 @@ export function FilterSidebar({
           Showing {shown} of {total}
         </p>
 
+        <Section title="Status" count={filters.statuses.size}>
+          <CheckList
+            options={STATUS_OPTIONS}
+            chosen={filters.statuses}
+            onToggle={(v) => toggle("statuses", v)}
+            renderLabel={(v) => statusLabel(v as Status)}
+          />
+        </Section>
+
         <Section title="Classes" count={filters.classes.size}>
           <CheckList
             options={classes}
             chosen={filters.classes}
             onToggle={(v) => toggle("classes", v)}
             renderLabel={prettyClass}
+            counts={classCounts}
           />
         </Section>
 
@@ -141,12 +174,19 @@ export function FilterSidebar({
           />
         </Section>
 
-        <Section title="Status" count={filters.statuses.size}>
+        <Section title="Classification" count={filters.classification.size}>
           <CheckList
-            options={STATUS_OPTIONS}
-            chosen={filters.statuses}
-            onToggle={(v) => toggle("statuses", v)}
+            options={CLASSIFICATION_OPTIONS}
+            chosen={filters.classification}
+            onToggle={(v) => toggle("classification", v)}
+            renderLabel={(v) => CLASSIFICATION_LABELS[v]}
+            disabled={!hasPredictions}
           />
+          {!hasPredictions && (
+            <p className="text-muted mt-1 text-xs">
+              Train a model to show classifications.
+            </p>
+          )}
         </Section>
       </div>
     </aside>

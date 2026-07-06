@@ -198,29 +198,51 @@ def test_generate_with_no_subjects_targets_all_classes(with_dataset):
     assert seen["subjects"] == []  # empty means "all classes" downstream
 
 
-def test_dedup_exact_flags_without_binning(with_dataset):
+def test_dedup_flags_without_binning(with_dataset):
     before = with_dataset.get("/api/datasets/birds").json()["stats"]["total"]
-    r = with_dataset.post("/api/datasets/birds/dedup", json={"mode": "exact"})
+    r = with_dataset.post("/api/datasets/birds/dedup")
     body = _poll(with_dataset, r.json()["job_id"])
     assert body["status"] == "done"
     # dedup only flags, it must not bin anything, so the live total is unchanged
     assert isinstance(body["result"]["flagged"], list)
-    # exact mode also returns the group structure, and flattening it matches flagged
+    # the group structure comes along too, and flattening it matches flagged
     groups = body["result"]["groups"]
     assert [item_id for g in groups for item_id in g] == body["result"]["flagged"]
     after = with_dataset.get("/api/datasets/birds").json()["stats"]["total"]
     assert after == before
 
 
-def test_dedup_rejects_bad_mode(with_dataset):
-    r = with_dataset.post("/api/datasets/birds/dedup", json={"mode": "wat"})
-    assert r.status_code == 400
+def test_train_stores_predictions(with_dataset):
+    from sorty import api as api_module
+    from sorty.core import Prediction
 
+    items = with_dataset.get("/api/datasets/birds").json()["items"]
+    # a canned crossval: first item mis-classified, the rest agree with their label
+    def fake_crossval(root, ds, folds, epochs, progress):
+        preds = [
+            Prediction(item_id=i["id"], label=i["label"], predicted=i["label"], local_path=i["local_path"])
+            for i in items
+        ]
+        preds[0] = Prediction(
+            item_id=items[0]["id"], label=items[0]["label"],
+            predicted="sparrow" if items[0]["label"] != "sparrow" else "robin",
+            local_path=items[0]["local_path"],
+        )
+        return preds
 
-def test_infer_without_torch_or_model_errors(with_dataset):
-    # no model.pt and torch may be absent; either way this must not 200
-    r = with_dataset.post("/api/datasets/birds/infer")
-    assert r.status_code == 503 or r.status_code == 400
+    with mock.patch.object(api_module.classify, "torch_available", lambda: True), \
+         mock.patch.object(api_module.classify, "crossval", fake_crossval):
+        r = with_dataset.post("/api/datasets/birds/train", json={})
+        body = _poll(with_dataset, r.json()["job_id"])
+
+    assert body["status"] == "done"
+    assert body["result"] == {"predicted": 6, "mismatched": 1}
+
+    after = with_dataset.get("/api/datasets/birds").json()["items"]
+    by_id = {i["id"]: i for i in after}
+    assert by_id[items[0]["id"]]["predicted"] != by_id[items[0]["id"]]["label"]
+    correct = [i for i in after if i["predicted"] == i["label"]]
+    assert len(correct) == 5
 
 
 def test_job_404(client):
@@ -380,3 +402,82 @@ def test_generate_passes_target_total_through(with_dataset):
         body = _poll(with_dataset, r.json()["job_id"])
     assert body["status"] == "done"
     assert seen == {"count": 5, "target_total": True}
+
+
+def test_crop_route(with_dataset):
+    items = with_dataset.get("/api/datasets/birds").json()["items"]
+    target = items[0]["id"]
+
+    r = with_dataset.post(
+        f"/api/datasets/birds/items/{target}/crop",
+        json={"left": 1, "top": 1, "width": 5, "height": 4},
+    )
+    assert r.status_code == 200
+    body = r.json()["item"]
+    assert body["id"] == target
+    assert (body["width"], body["height"]) == (5, 4)
+
+    # out-of-bounds box is a 400, missing item a 404
+    bad = with_dataset.post(
+        f"/api/datasets/birds/items/{target}/crop",
+        json={"left": 0, "top": 0, "width": 99, "height": 99},
+    )
+    assert bad.status_code == 400
+    assert with_dataset.post(
+        "/api/datasets/birds/items/ghost/crop",
+        json={"left": 0, "top": 0, "width": 1, "height": 1},
+    ).status_code == 404
+
+
+def test_sources_flag_contact_requirement(client, monkeypatch):
+    monkeypatch.delenv("SORTY_CONTACT", raising=False)
+    body = client.get("/api/sources").json()
+    assert body["contact_set"] is False
+    by_name = {s["name"]: s["requires_contact"] for s in body["sources"]}
+    assert by_name["wikimedia_commons"] is True
+    assert by_name["inaturalist"] is True
+    assert by_name["duckduckgo"] is False
+
+
+def test_set_contact_persists_and_unlocks(client, tmp_path, monkeypatch):
+    from sorty import config
+
+    monkeypatch.delenv("SORTY_CONTACT", raising=False)
+    env_file = tmp_path / ".env"
+    monkeypatch.setattr(config, "_env_path", lambda: env_file)
+
+    assert client.post("/api/contact", json={"email": "not-an-email"}).status_code == 400
+
+    r = client.post("/api/contact", json={"email": "cat@example.com"})
+    assert r.status_code == 200 and r.json() == {"contact_set": True}
+    assert "SORTY_CONTACT=cat@example.com" in env_file.read_text(encoding="utf-8")
+    assert client.get("/api/sources").json()["contact_set"] is True
+
+
+def test_duplicate_route(with_dataset):
+    items = with_dataset.get("/api/datasets/birds").json()["items"]
+    source = items[0]
+
+    r = with_dataset.post(f"/api/datasets/birds/items/{source['id']}/duplicate")
+    assert r.status_code == 200
+    copy = r.json()["item"]
+    assert copy["id"] != source["id"]
+    assert copy["label"] == source["label"]
+
+    after = with_dataset.get("/api/datasets/birds").json()["items"]
+    assert len(after) == len(items) + 1
+
+    assert with_dataset.post(
+        "/api/datasets/birds/items/ghost/duplicate"
+    ).status_code == 404
+
+
+def test_binned_item_image_serves_from_bin(with_dataset):
+    victim = with_dataset.get("/api/datasets/birds").json()["items"][0]["id"]
+    with_dataset.post("/api/datasets/birds/delete", json={"item_ids": [victim]})
+
+    binned = with_dataset.get("/api/datasets/birds/bin").json()["items"]
+    assert binned[0]["id"] == victim
+    # the url must point at the file's bin location, or the bin page renders nothing
+    assert ".sorty/recyclebin/" in binned[0]["url"]
+    assert with_dataset.get(binned[0]["url"]).status_code == 200

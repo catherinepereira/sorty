@@ -16,7 +16,10 @@ export function ModalActions({
 }) {
   return (
     <div className="mt-6 flex justify-end gap-3">
-      <button className="text-muted hover:text-text px-4 py-2" onClick={onCancel}>
+      <button
+        className="text-muted hover:text-text px-4 py-2"
+        onClick={onCancel}
+      >
         {cancelLabel}
       </button>
       <button

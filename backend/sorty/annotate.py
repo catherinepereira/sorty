@@ -7,7 +7,10 @@ label's folder and rewrites local_path so disk and manifest stay in step with th
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
+
+from PIL import Image, ImageOps
 
 from sorty.core import Dataset, DatasetItem, ReviewStatus, slugify
 
@@ -33,6 +36,63 @@ def move_item_to_label(root: Path, item: DatasetItem, label: str) -> None:
         old_path.replace(new_path)
     item.label = label
     item.local_path = str(new_rel)
+
+
+def duplicate_item(ds: Dataset, root: Path, item_id: str) -> DatasetItem:
+    """Copy an item and its file under a new id, e.g. to crop two regions of one photo.
+
+    The copy sits next to the original in the manifest and keeps its class, source,
+    status, and prediction. The new id is derived from the original's, salted until it
+    collides with nothing.
+    """
+    source = find_item(ds, item_id)
+    src_path = root / source.local_path
+    if not src_path.exists():
+        raise ValueError("The image file is missing on disk.")
+
+    existing = {i.item_id for i in ds.items}
+    n = 1
+    while (new_id := DatasetItem.make_id(f"{source.item_id}:copy{n}")) in existing:
+        n += 1
+
+    new_rel = Path(source.label) / f"{source.label}_{new_id}{src_path.suffix}"
+    shutil.copy2(src_path, root / new_rel)
+    copy = source.model_copy(
+        update={"item_id": new_id, "local_path": str(new_rel), "deleted_at": None}
+    )
+    ds.items.insert(ds.items.index(source) + 1, copy)
+    ds.touch()
+    return copy
+
+
+def crop_item(
+    ds: Dataset, root: Path, item_id: str, left: int, top: int, width: int, height: int
+) -> None:
+    """Crop an item's image file in place to the given pixel box.
+
+    The box must lie fully inside the image. The id, label, and path all stay the same,
+    only the file's pixels change.
+    """
+    item = find_item(ds, item_id)
+    path = root / item.local_path
+    if not path.exists():
+        raise ValueError("The image file is missing on disk.")
+    if width < 1 or height < 1:
+        raise ValueError("Crop box must be at least 1x1 pixels.")
+    with Image.open(path) as raw:
+        # browsers show JPEGs with EXIF orientation applied, so the box arrives in
+        # rotated coordinates. Bake the rotation in before validating and cropping,
+        # or a rotated photo rejects boxes that are visibly inside it
+        img = ImageOps.exif_transpose(raw)
+        if left < 0 or top < 0 or left + width > img.width or top + height > img.height:
+            raise ValueError("Crop box is outside the image.")
+        cropped = img.crop((left, top, left + width, top + height))
+        cropped.load()
+    # JPEG can't hold an alpha or palette mode the source may carry
+    if cropped.mode != "RGB" and path.suffix.lower() in {".jpg", ".jpeg"}:
+        cropped = cropped.convert("RGB")
+    cropped.save(path)
+    ds.touch()
 
 
 def set_status(ds: Dataset, item_id: str, status: ReviewStatus) -> None:

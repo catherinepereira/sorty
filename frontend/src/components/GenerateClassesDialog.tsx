@@ -56,7 +56,9 @@ export function GenerateClassesDialog({
       setResults(fresh);
       setChosen(new Set(fresh));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not generate classes");
+      setError(
+        e instanceof ApiError ? e.message : "Could not generate classes",
+      );
     } finally {
       setBusy(false);
     }

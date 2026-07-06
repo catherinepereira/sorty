@@ -13,7 +13,7 @@ def test_delete_moves_file_and_flags(dataset):
 
     assert moved == 1
     assert not src.exists()
-    assert recyclebin._bin_path(root, item).exists()
+    assert recyclebin.bin_path(root, item).exists()
     assert recyclebin.is_binned(item)
     assert recyclebin.list_bin(ds) == [item]
 
@@ -36,7 +36,7 @@ def test_restore_moves_back_and_clears(dataset):
 
     assert restored == 1
     assert original.exists()
-    assert not recyclebin._bin_path(root, item).exists()
+    assert not recyclebin.bin_path(root, item).exists()
     assert item.review_status.value == "pending"
     assert item.deleted_at is None
     assert recyclebin.list_bin(ds) == []

@@ -27,8 +27,8 @@ def list_bin(ds: Dataset) -> list[DatasetItem]:
     return [i for i in ds.items if is_binned(i)]
 
 
-def _bin_path(root: Path, item: DatasetItem) -> Path:
-    """Where a binned item's file lives, mirroring its <label>/<filename> layout."""
+def bin_path(root: Path, item: DatasetItem) -> Path:
+    """A binned item's file path under the bin, mirroring its <label>/<filename> layout."""
     return _bin_dir(root) / item.local_path
 
 
@@ -40,7 +40,7 @@ def delete_to_bin(ds: Dataset, root: Path, item_ids: list[str]) -> int:
         if item.item_id not in wanted or is_binned(item):
             continue
         src = root / item.local_path
-        dest = _bin_path(root, item)
+        dest = bin_path(root, item)
         dest.parent.mkdir(parents=True, exist_ok=True)
         if src.exists():
             src.replace(dest)
@@ -59,7 +59,7 @@ def restore(ds: Dataset, root: Path, item_ids: list[str]) -> int:
     for item in ds.items:
         if item.item_id not in wanted or not is_binned(item):
             continue
-        src = _bin_path(root, item)
+        src = bin_path(root, item)
         dest = root / item.local_path
         dest.parent.mkdir(parents=True, exist_ok=True)
         if src.exists():
@@ -86,7 +86,7 @@ def empty_bin(ds: Dataset, root: Path) -> int:
     """Permanently delete every binned file and drop those items. Returns the count."""
     binned = list_bin(ds)
     for item in binned:
-        _bin_path(root, item).unlink(missing_ok=True)
+        bin_path(root, item).unlink(missing_ok=True)
     binned_ids = {i.item_id for i in binned}
     ds.items = [i for i in ds.items if i.item_id not in binned_ids]
     if binned:

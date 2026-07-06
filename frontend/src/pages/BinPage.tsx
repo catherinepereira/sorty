@@ -49,7 +49,7 @@ export function BinPage() {
   return (
     <>
       <Header
-        title={`Recycle Bin ${name}`}
+        title={`Recycle Bin (${name})`}
         subtitle={`${items.length} in the recycle bin`}
         mood="trash"
         backTo={`/d/${name}`}
@@ -88,7 +88,7 @@ export function BinPage() {
             <button
               key={item.id}
               onClick={() => toggle(item.id)}
-              className={`overflow-hidden rounded-xl border text-left transition ${
+              className={`overflow-hidden rounded-lg border text-left transition ${
                 selected.has(item.id)
                   ? "border-primary ring-primary/40 ring-2"
                   : "border-border"
@@ -100,7 +100,9 @@ export function BinPage() {
                 className="aspect-square w-full object-cover opacity-70"
                 loading="lazy"
               />
-              <div className="truncate p-2 text-sm">{prettyClass(item.label)}</div>
+              <div className="truncate p-2 text-sm">
+                {prettyClass(item.label)}
+              </div>
             </button>
           ))}
         </div>

@@ -13,6 +13,8 @@ export interface Item {
   local_path: string;
   directory: string;
   filename: string;
+  // the cross-validated model's class for this image, null until a model has run
+  predicted: string | null;
 }
 
 export interface DatasetSummary {
@@ -31,13 +33,6 @@ export interface DatasetDetail {
   sources: string[];
   stats: { total: number; pending: number; valid: number; invalid: number };
   items: Item[];
-}
-
-export interface Prediction {
-  id: string;
-  label: string;
-  predicted: string;
-  url: string;
 }
 
 export type JobState =

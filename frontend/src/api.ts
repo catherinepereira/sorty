@@ -44,7 +44,13 @@ const post = <T>(path: string, body?: unknown) => send<T>("POST", path, body);
 export { ApiError };
 
 export const api = {
-  sources: () => req<{ sources: string[] }>("/api/sources"),
+  sources: () =>
+    req<{
+      sources: { name: string; requires_contact: boolean }[];
+      contact_set: boolean;
+    }>("/api/sources"),
+  setContact: (email: string) =>
+    post<{ contact_set: boolean }>("/api/contact", { email }),
 
   listDatasets: () =>
     req<{ datasets: DatasetSummary[] }>("/api/datasets").then(
@@ -81,6 +87,7 @@ export const api = {
         width: number | null;
         height: number | null;
         bytes: number | null;
+        ingested: number | null;
       }
     >(`/api/datasets/${name}/items/${id}`),
 
@@ -88,6 +95,21 @@ export const api = {
     post<{ item: Item }>(`/api/datasets/${name}/items/${id}/label`, {
       subject,
     }),
+  duplicateItem: (name: string, id: string) =>
+    post<{ item: Item }>(`/api/datasets/${name}/items/${id}/duplicate`),
+  cropItem: (
+    name: string,
+    id: string,
+    box: { left: number; top: number; width: number; height: number },
+  ) =>
+    post<{
+      item: Item & {
+        width: number | null;
+        height: number | null;
+        bytes: number | null;
+        ingested: number | null;
+      };
+    }>(`/api/datasets/${name}/items/${id}/crop`, box),
   setStatus: (name: string, id: string, status: Status) =>
     post<{ item: Item }>(`/api/datasets/${name}/items/${id}/status`, {
       status,
@@ -123,12 +145,10 @@ export const api = {
       target_total: boolean;
     },
   ) => post<{ job_id: string }>(`/api/datasets/${name}/generate`, body),
-  dedup: (name: string, mode: "exact" | "outliers") =>
-    post<{ job_id: string }>(`/api/datasets/${name}/dedup`, { mode }),
-  train: (name: string, model: string, epochs: number) =>
-    post<{ job_id: string }>(`/api/datasets/${name}/train`, { model, epochs }),
-  infer: (name: string) =>
-    post<{ job_id: string }>(`/api/datasets/${name}/infer`),
+  dedup: (name: string) =>
+    post<{ job_id: string }>(`/api/datasets/${name}/dedup`),
+  train: (name: string) =>
+    post<{ job_id: string }>(`/api/datasets/${name}/train`, {}),
 
   setSubjects: (name: string, subjects: string[]) =>
     post<{ subjects: string[] }>(`/api/datasets/${name}/subjects`, {

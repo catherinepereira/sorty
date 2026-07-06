@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { Modal, ModalActions } from "./Modal";
-import { api } from "../api";
+import { api, ApiError } from "../api";
 import { prettyClass } from "../classname";
+
+type SourceInfo = { name: string; requires_contact: boolean };
 
 /**
  * Fetch images for a dataset. Pick specific classes or leave the picker empty for all,
- * choose how many to pull per class (added on top, or a total to top up to), and
- * optionally resolve brand-new classes from a prompt via the LLM. Repeated runs page
- * deeper and skip URLs already downloaded, so a fetch never silently no-ops.
+ * and choose how many to pull per class (added on top, or a total to top up to).
+ * Repeated runs page deeper and skip URLs already downloaded, so a fetch never silently
+ * no-ops.
  */
 export function GenerateDialog({
   open,
@@ -20,32 +22,45 @@ export function GenerateDialog({
   onClose: () => void;
   onStart: (body: {
     subjects?: string[];
-    prompt?: string;
-    class_count?: number;
     sources: string[];
     count: number;
     target_total: boolean;
   }) => void;
 }) {
-  const [sources, setSources] = useState<string[]>([]);
+  const [sources, setSources] = useState<SourceInfo[]>([]);
+  const [contactSet, setContactSet] = useState(false);
+  const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
   const [chosenSources, setChosenSources] = useState<Set<string>>(new Set());
   const [chosenClasses, setChosenClasses] = useState<Set<string>>(new Set());
   const [count, setCount] = useState(20);
   const [countMode, setCountMode] = useState<"add" | "total">("add");
-  const [usePrompt, setUsePrompt] = useState(false);
-  const [prompt, setPrompt] = useState("");
-  const [classCount, setClassCount] = useState(8);
 
   useEffect(() => {
     if (!open) return;
     api.sources().then((r) => {
       setSources(r.sources);
-      setChosenSources(new Set(r.sources.slice(0, 1)));
+      setContactSet(r.contact_set);
+      // default to the first source that needs no setup
+      const first = r.sources.find((s) => r.contact_set || !s.requires_contact);
+      setChosenSources(new Set(first ? [first.name] : []));
     });
     setChosenClasses(new Set());
-    setUsePrompt(false);
-    setPrompt("");
+    setEmail("");
+    setEmailError("");
   }, [open]);
+
+  const saveContact = async () => {
+    setEmailError("");
+    try {
+      await api.setContact(email);
+      setContactSet(true);
+    } catch (e) {
+      setEmailError(
+        e instanceof ApiError ? e.message : "Could not save the email",
+      );
+    }
+  };
 
   const toggle = (
     set: Set<string>,
@@ -61,125 +76,144 @@ export function GenerateDialog({
   const start = () => {
     onStart({
       subjects: chosenClasses.size ? [...chosenClasses] : undefined,
-      prompt: usePrompt && prompt.trim() ? prompt.trim() : undefined,
-      class_count: usePrompt ? classCount : undefined,
       sources: [...chosenSources],
       count,
       target_total: countMode === "total",
     });
   };
 
-  const noClassesYet = classes.length === 0;
-  const ready =
-    chosenSources.size > 0 &&
-    (classes.length > 0 || (usePrompt && prompt.trim().length > 0));
+  const ready = chosenSources.size > 0 && classes.length > 0;
 
   return (
     <Modal open={open} onClose={onClose}>
       <h2 className="text-lg font-semibold">Generate images</h2>
 
-      {classes.length > 0 && (
-        <div className="mt-4">
-          <p className="text-sm font-medium">
-            Classes{" "}
-            <span className="text-muted">
-              {chosenClasses.size ? `(${chosenClasses.size})` : "(all)"}
-            </span>
-          </p>
-          <div className="mt-1 flex max-h-32 flex-wrap gap-2 overflow-y-auto">
-            {classes.map((c) => (
-              <button
-                key={c}
-                onClick={() => toggle(chosenClasses, c, setChosenClasses)}
-                className={`rounded-lg px-3 py-1.5 text-sm ${
-                  chosenClasses.has(c)
-                    ? "bg-primary text-white"
-                    : "border-border text-muted border"
-                }`}
-              >
-                {prettyClass(c)}
-              </button>
-            ))}
+      <div className="mt-5 space-y-5">
+        {classes.length > 0 && (
+          <div>
+            <p className="text-sm font-medium">
+              Classes{" "}
+              <span className="text-muted">
+                {chosenClasses.size ? `(${chosenClasses.size})` : "(all)"}
+              </span>
+            </p>
+            <div className="mt-1 flex max-h-72 flex-wrap gap-2 overflow-y-auto">
+              {classes.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => toggle(chosenClasses, c, setChosenClasses)}
+                  className={`rounded-lg px-3 py-1.5 text-sm ${
+                    chosenClasses.has(c)
+                      ? "bg-primary text-white"
+                      : "border-border text-muted border"
+                  }`}
+                >
+                  {prettyClass(c)}
+                </button>
+              ))}
+            </div>
           </div>
+        )}
+
+        {classes.length === 0 && (
+          <p className="text-muted text-sm">
+            No classes yet. Add some in the Summary panel first.
+          </p>
+        )}
+
+        <hr className="border-border" />
+
+        <div>
+          <p className="text-sm font-medium">Sources</p>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {sources.map((s) => {
+              const locked = s.requires_contact && !contactSet;
+              return (
+                <button
+                  key={s.name}
+                  disabled={locked}
+                  onClick={() =>
+                    toggle(chosenSources, s.name, setChosenSources)
+                  }
+                  title={
+                    locked
+                      ? `${s.name} asks API users for a contact email. Set one below to enable it.`
+                      : undefined
+                  }
+                  className={`rounded-lg px-3 py-1.5 text-sm ${
+                    chosenSources.has(s.name)
+                      ? "bg-primary text-white"
+                      : "border-border text-muted border"
+                  } ${locked ? "cursor-not-allowed opacity-40" : ""}`}
+                >
+                  {s.name}
+                </button>
+              );
+            })}
+          </div>
+          {sources.some((s) => s.requires_contact) && !contactSet && (
+            <div className="mt-3">
+              <p className="text-muted text-sm">
+                Grayed sources ask API users for a contact email. Set one to
+                enable them (saved to .env).
+              </p>
+              <div className="mt-2 flex gap-2">
+                <input
+                  type="email"
+                  className="border-border focus:border-primary flex-1 rounded-lg border px-3 py-1.5 text-sm outline-none"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && email.trim() && saveContact()
+                  }
+                />
+                <button
+                  onClick={saveContact}
+                  disabled={!email.trim()}
+                  className="bg-primary rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  Save
+                </button>
+              </div>
+              {emailError && (
+                <p className="text-bad mt-1 text-sm">{emailError}</p>
+              )}
+            </div>
+          )}
         </div>
-      )}
 
-      <label className="mt-4 flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={usePrompt}
-          onChange={(e) => setUsePrompt(e.target.checked)}
-        />
-        {noClassesYet ? "Resolve classes from a prompt" : "Add new classes from a prompt"}
-      </label>
+        <hr className="border-border" />
 
-      {usePrompt && (
-        <div className="mt-2 space-y-3">
-          <input
-            className="border-border focus:border-primary w-full rounded-lg border px-3 py-2 outline-none"
-            placeholder="e.g. common backyard birds of the Pacific Northwest"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-          />
+        <div className="space-y-2">
+          <div className="flex gap-2 text-sm">
+            <button
+              className={`rounded-lg px-3 py-1.5 ${countMode === "add" ? "bg-primary text-white" : "text-muted"}`}
+              onClick={() => setCountMode("add")}
+            >
+              Add per class
+            </button>
+            <button
+              className={`rounded-lg px-3 py-1.5 ${countMode === "total" ? "bg-primary text-white" : "text-muted"}`}
+              onClick={() => setCountMode("total")}
+            >
+              Total per class
+            </button>
+          </div>
           <label className="text-muted flex items-center gap-2 text-sm">
-            Classes to resolve
+            {countMode === "add"
+              ? "New images per class"
+              : "Target total per class"}
             <input
               type="number"
               min={1}
-              max={50}
+              max={200}
               className="border-border w-20 rounded-lg border px-2 py-1"
-              value={classCount}
-              onChange={(e) => setClassCount(Number(e.target.value))}
+              value={count}
+              onChange={(e) => setCount(Number(e.target.value))}
             />
           </label>
         </div>
-      )}
-
-      <div className="mt-4">
-        <p className="text-sm font-medium">Sources</p>
-        <div className="mt-1 flex flex-wrap gap-2">
-          {sources.map((s) => (
-            <button
-              key={s}
-              onClick={() => toggle(chosenSources, s, setChosenSources)}
-              className={`rounded-lg px-3 py-1.5 text-sm ${
-                chosenSources.has(s)
-                  ? "bg-primary text-white"
-                  : "border-border text-muted border"
-              }`}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-4 space-y-2">
-        <div className="flex gap-2 text-sm">
-          <button
-            className={`rounded-lg px-3 py-1.5 ${countMode === "add" ? "bg-primary text-white" : "text-muted"}`}
-            onClick={() => setCountMode("add")}
-          >
-            Add per class
-          </button>
-          <button
-            className={`rounded-lg px-3 py-1.5 ${countMode === "total" ? "bg-primary text-white" : "text-muted"}`}
-            onClick={() => setCountMode("total")}
-          >
-            Total per class
-          </button>
-        </div>
-        <label className="text-muted flex items-center gap-2 text-sm">
-          {countMode === "add" ? "New images per class" : "Target total per class"}
-          <input
-            type="number"
-            min={1}
-            max={200}
-            className="border-border w-20 rounded-lg border px-2 py-1"
-            value={count}
-            onChange={(e) => setCount(Number(e.target.value))}
-          />
-        </label>
       </div>
 
       <ModalActions

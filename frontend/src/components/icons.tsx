@@ -44,15 +44,6 @@ export function MirrorIcon(p: IconProps) {
   );
 }
 
-export function MagnifierIcon(p: IconProps) {
-  return (
-    <Svg {...p}>
-      <circle cx="11" cy="11" r="7" />
-      <path d="M21 21l-4.3-4.3" />
-    </Svg>
-  );
-}
-
 export function BrainIcon(p: IconProps) {
   // stand-in for training the model
   return (
@@ -60,17 +51,6 @@ export function BrainIcon(p: IconProps) {
       <path d="M9 4a3 3 0 0 0-3 3 3 3 0 0 0-1 5.8V16a3 3 0 0 0 4 2.8" />
       <path d="M15 4a3 3 0 0 1 3 3 3 3 0 0 1 1 5.8V16a3 3 0 0 1-4 2.8" />
       <path d="M12 4v16" />
-    </Svg>
-  );
-}
-
-export function TargetIcon(p: IconProps) {
-  // running the classifier over the dataset
-  return (
-    <Svg {...p}>
-      <circle cx="12" cy="12" r="8" />
-      <circle cx="12" cy="12" r="4" />
-      <circle cx="12" cy="12" r="0.5" fill="currentColor" />
     </Svg>
   );
 }
@@ -166,6 +146,34 @@ export function BackIcon(p: IconProps) {
   );
 }
 
+export function GearIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1h.2a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1z" />
+    </Svg>
+  );
+}
+
+export function CopyIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+    </Svg>
+  );
+}
+
+export function CropIcon(p: IconProps) {
+  // the classic crop mark: two overlapping right angles
+  return (
+    <Svg {...p}>
+      <path d="M6 2v14a2 2 0 0 0 2 2h14" />
+      <path d="M18 22V8a2 2 0 0 0-2-2H2" />
+    </Svg>
+  );
+}
+
 export function CloseIcon(p: IconProps) {
   return (
     <Svg {...p}>
@@ -174,7 +182,10 @@ export function CloseIcon(p: IconProps) {
   );
 }
 
-export function ChevronIcon({ open, className }: IconProps & { open: boolean }) {
+export function ChevronIcon({
+  open,
+  className,
+}: IconProps & { open: boolean }) {
   return (
     <Svg className={className ?? "h-4 w-4"}>
       <path d={open ? "M6 15l6-6 6 6" : "M9 6l6 6-6 6"} />

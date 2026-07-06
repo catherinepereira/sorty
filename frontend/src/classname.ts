@@ -6,6 +6,8 @@ export function prettyClass(slug: string): string {
   return slug
     .split("-")
     .filter(Boolean)
-    .map((w) => (ROMAN.test(w) ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1)))
+    .map((w) =>
+      ROMAN.test(w) ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1),
+    )
     .join(" ");
 }

@@ -1,9 +1,8 @@
-"""Train a classifier and use it to find label mismatches.
+"""Cross-validate a classifier over the dataset and map its judgments back to items.
 
-Training, full-dataset inference, and cross-validation live in sorty.core. This filters
-out recycle-bin items, bridges progress to the job's progress, and returns Prediction
-objects to the UI. Torch is imported lazily in the core, so this module loads without the
-[train] extra.
+The training itself lives in sorty.core. This filters out recycle-bin items, bridges
+progress to the job's progress, and returns Prediction objects keyed by item id. Torch
+is imported lazily in the core, so this module loads without it.
 """
 
 from __future__ import annotations
@@ -15,10 +14,7 @@ from sorty.core import (
     DatasetItem,
     Prediction,
     crossval as core_crossval,
-    infer as core_infer,
-    model_exists,
     torch_available,
-    train as core_train,
 )
 from sorty.core import find_mismatches as core_find_mismatches
 
@@ -28,9 +24,6 @@ from sorty.recyclebin import is_binned
 __all__ = [
     "Prediction",
     "torch_available",
-    "model_exists",
-    "train",
-    "infer_all",
     "crossval",
     "find_mismatches",
 ]
@@ -44,40 +37,19 @@ def _candidates(ds: Dataset, root: Path) -> list[DatasetItem]:
     return [i for i in ds.items if not is_binned(i) and (root / i.local_path).exists()]
 
 
-def train(
-    root: Path,
-    items: list[DatasetItem],
-    model_name: str,
-    epochs: int,
-    val_split: float,
-    img_size: int,
-    progress: JobProgress,
-) -> dict:
-    """Fine-tune a classifier on the dataset. Returns the training report."""
-    return core_train(
-        root, items, model=model_name, epochs=epochs, val_split=val_split,
-        img_size=img_size, on_progress=bridge(progress),
-    )
-
-
-def infer_all(root: Path, ds: Dataset, progress: JobProgress) -> list[Prediction]:
-    """Predict every image and return the ones that disagree with their label.
-
-    Uses the single trained model, so images it trained on look artificially correct.
-    crossval judges every image with a model that never saw it.
-    """
-    return core_infer(root, _candidates(ds, root), on_progress=bridge(progress))
-
-
 def crossval(root: Path, ds: Dataset, folds: int, epochs: int, progress: JobProgress) -> list[Prediction]:
-    """Out-of-fold cross-validation, mapping flagged paths back to predictions."""
+    """Out-of-fold cross-validation, mapping every predicted path back to a Prediction.
+
+    Every image is predicted by a model that never trained on it, so correct predictions
+    mean as much as the disagreements.
+    """
     items = _candidates(ds, root)
-    flagged = core_crossval(
+    predicted = core_crossval(
         root, items, folds=folds, epochs=epochs, on_progress=bridge(progress)
     )
     by_path = {str((root / i.local_path).resolve()): i for i in items}
     out: list[Prediction] = []
-    for entry in flagged:
+    for entry in predicted:
         item = by_path.get(entry["path"])
         if item is None:
             continue

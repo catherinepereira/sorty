@@ -31,6 +31,8 @@ class DatasetItem(BaseModel):
     review_status: ReviewStatus = ReviewStatus.pending
     # deleted_at is set when an item is in the recycle bin, absent otherwise
     deleted_at: float | None = None
+    # the class the cross-validated model predicted, None until a model has run
+    predicted_label: str | None = None
 
     @classmethod
     def make_id(cls, key: str) -> str:

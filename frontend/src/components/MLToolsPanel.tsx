@@ -1,10 +1,4 @@
-import {
-  BrainIcon,
-  MagnifierIcon,
-  MirrorIcon,
-  SparklesIcon,
-  TargetIcon,
-} from "./icons";
+import { BrainIcon, MirrorIcon, SparklesIcon } from "./icons";
 
 /**
  * The dataset's ML actions as a grid of labeled icon buttons. Each callback kicks off a
@@ -14,23 +8,29 @@ import {
 export function MLToolsPanel({
   onGenerate,
   onDuplicates,
-  onOutliers,
   onTrain,
-  onClassify,
 }: {
   onGenerate: () => void;
   onDuplicates: () => void;
-  onOutliers: () => void;
   onTrain: () => void;
-  onClassify: () => void;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
-      <ToolButton label="Generate images" icon={<SparklesIcon className="h-5 w-5" />} onClick={onGenerate} />
-      <ToolButton label="Find duplicates" icon={<MirrorIcon className="h-5 w-5" />} onClick={onDuplicates} />
-      <ToolButton label="Find outliers" icon={<MagnifierIcon className="h-5 w-5" />} onClick={onOutliers} />
-      <ToolButton label="Train model" icon={<BrainIcon className="h-5 w-5" />} onClick={onTrain} />
-      <ToolButton label="Run classifier" icon={<TargetIcon className="h-5 w-5" />} onClick={onClassify} />
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <ToolButton
+        label="Generate images"
+        icon={<SparklesIcon className="h-5 w-5" />}
+        onClick={onGenerate}
+      />
+      <ToolButton
+        label="Find duplicates"
+        icon={<MirrorIcon className="h-5 w-5" />}
+        onClick={onDuplicates}
+      />
+      <ToolButton
+        label="Train model"
+        icon={<BrainIcon className="h-5 w-5" />}
+        onClick={onTrain}
+      />
     </div>
   );
 }

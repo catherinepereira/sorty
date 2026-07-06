@@ -3,7 +3,7 @@
 Three entry points, all torch-lazy so importing this module needs no torch:
 - train: fine-tune a pretrained backbone on the dataset, save a TorchScript model
 - infer: predict every image with the saved model, return predicted != label
-- crossval: out-of-fold prediction, so every image is judged by a model that never
+- crossval: out-of-fold prediction, so every image is predicted by a model that never
   trained on it, which checks the whole dataset rather than only a held-out split
 
 train and crossval write misclassified.json, which review consumers read
@@ -405,11 +405,13 @@ def crossval(
     seed: int | None = None,
     on_progress: OnProgress = None,
 ) -> list[dict]:
-    """Out-of-fold cross-validation. Writes and returns misclassified entries.
+    """Out-of-fold cross-validation. Returns an entry for every image predicted.
 
-    A class small relative to folds can land entirely in one fold, leaving that fold's
-    training split without it. Those images can't be predicted, so they're skipped
-    rather than counted as mislabeled.
+    Each entry is {"path", "true_label", "predicted"}, so callers see the correct
+    predictions as well as the disagreements. misclassified.json still records only the
+    disagreements. A class small relative to folds can land entirely in one fold,
+    leaving that fold's training split without it. Those images can't be predicted, so
+    they're skipped.
     """
     import torch
 
@@ -428,7 +430,7 @@ def crossval(
     fold_idx = _fold_indices(len(samples), folds)
     lr = _find_lr_once(samples, class_to_idx, img_size, device)
 
-    misclassified: list[dict] = []
+    predictions: list[dict] = []
     skipped = 0
     reporter.start(folds, "Cross-validating")
     for f in range(folds):
@@ -442,15 +444,18 @@ def crossval(
             if true_label not in train_classes:
                 skipped += 1
                 continue
-            pred_label = idx_to_class[pred]
-            if pred_label != true_label:
-                misclassified.append({"path": str(path.resolve()), "true_label": true_label, "predicted": pred_label})
+            predictions.append({
+                "path": str(path.resolve()),
+                "true_label": true_label,
+                "predicted": idx_to_class[pred],
+            })
         reporter.advance(f"Fold {f + 1}/{folds}")
 
     if skipped:
         reporter.set_message(f"Skipped {skipped} images whose class was absent from a fold's training split")
 
+    misclassified = [e for e in predictions if e["predicted"] != e["true_label"]]
     (meta_dir(dataset_root) / "misclassified.json").write_text(
         json.dumps(misclassified, indent=2), encoding="utf-8"
     )
-    return misclassified
+    return predictions

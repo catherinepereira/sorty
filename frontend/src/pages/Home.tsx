@@ -29,7 +29,9 @@ export function Home() {
     setSyncing(true);
     try {
       const current = await api.listDatasets();
-      await Promise.all(current.map((d) => api.refresh(d.name).catch(() => {})));
+      await Promise.all(
+        current.map((d) => api.refresh(d.name).catch(() => {})),
+      );
       await refresh();
     } finally {
       setSyncing(false);
@@ -53,39 +55,32 @@ export function Home() {
       <Header
         subtitle="Build and clean image datasets"
         actions={
-          <div className="flex items-center gap-2">
-            <button
-              onClick={syncAll}
-              disabled={syncing}
-              className="border-border text-muted hover:bg-card flex h-10 w-10 items-center justify-center rounded-lg border disabled:opacity-50"
-              title="Sync datasets to disk"
-              aria-label="Sync datasets to disk"
-            >
-              <RefreshIcon className={`h-5 w-5 ${syncing ? "animate-spin" : ""}`} />
-            </button>
-            <button
-              onClick={() => setDialogOpen(true)}
-              className="bg-primary flex h-10 w-10 items-center justify-center rounded-lg font-medium text-white hover:brightness-95"
-              title="New dataset"
-              aria-label="New dataset"
-            >
-              <PlusIcon className="h-5 w-5" />
-            </button>
-          </div>
+          <button
+            onClick={syncAll}
+            disabled={syncing}
+            className="border-good/30 bg-good/10 text-good hover:bg-good/20 flex h-10 w-10 items-center justify-center rounded-lg border disabled:opacity-50"
+            title="Sync datasets to disk"
+            aria-label="Sync datasets to disk"
+          >
+            <RefreshIcon
+              className={`h-5 w-5 ${syncing ? "animate-spin" : ""}`}
+            />
+          </button>
         }
       />
 
-      {datasets.length === 0 ? (
-        <p className="text-muted mt-16 text-center">
-          No datasets yet. Make one to get started.
-        </p>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {datasets.map((d) => (
-            <DatasetCard key={d.name} d={d} onDelete={() => remove(d.name)} />
-          ))}
-        </div>
-      )}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {datasets.map((d) => (
+          <DatasetCard key={d.name} d={d} onDelete={() => remove(d.name)} />
+        ))}
+        <button
+          onClick={() => setDialogOpen(true)}
+          className="border-border text-muted hover:border-primary hover:text-primary flex min-h-48 flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed transition"
+        >
+          <PlusIcon className="h-6 w-6" />
+          <span className="font-medium">New dataset</span>
+        </button>
+      </div>
 
       <NewDatasetDialog
         open={dialogOpen}
@@ -133,7 +128,7 @@ function DatasetCard({
         <div className="p-4">
           <h2 className="font-semibold">{d.name}</h2>
           <p className="text-muted mt-1 text-sm">
-            {d.total} images, {d.pending} pending, {d.valid} valid
+            {d.total} images, {d.pending} unreviewed, {d.valid} valid
           </p>
           <p className="text-muted text-xs">{d.subjects} classes</p>
         </div>
