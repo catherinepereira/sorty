@@ -11,10 +11,9 @@ from pathlib import Path
 
 from send2trash import send2trash
 
-from sorty.core import Dataset, has_manifest, load_dataset, save_dataset
+from sorty.core import Dataset, has_manifest, load_dataset, save_dataset, slugify
 from sorty.core.ids import FALLBACK_SLUG
 
-from sorty.ids import slugify
 from sorty.recyclebin import is_binned
 
 

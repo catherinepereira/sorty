@@ -9,20 +9,34 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sorty.core import Dataset, DatasetItem, ReviewStatus
-
-from sorty.ids import slugify
+from sorty.core import Dataset, DatasetItem, ReviewStatus, slugify
 
 
-def _find(ds: Dataset, item_id: str) -> DatasetItem:
+def find_item(ds: Dataset, item_id: str) -> DatasetItem:
     for item in ds.items:
         if item.item_id == item_id:
             return item
     raise KeyError(item_id)
 
 
+def move_item_to_label(root: Path, item: DatasetItem, label: str) -> None:
+    """Point an item at a class: move its file into <label>/ and rewrite label + local_path
+
+    The file move and the manifest rewrite happen together so the two never drift. A
+    missing source file still gets its label and path rewritten, refresh reconciles later.
+    """
+    old_path = root / item.local_path
+    new_rel = Path(label) / f"{label}_{item.item_id}{old_path.suffix}"
+    new_path = root / new_rel
+    new_path.parent.mkdir(parents=True, exist_ok=True)
+    if old_path.exists():
+        old_path.replace(new_path)
+    item.label = label
+    item.local_path = str(new_rel)
+
+
 def set_status(ds: Dataset, item_id: str, status: ReviewStatus) -> None:
-    _find(ds, item_id).review_status = status
+    find_item(ds, item_id).review_status = status
     ds.touch()
 
 
@@ -45,21 +59,13 @@ def set_label(ds: Dataset, root: Path, item_id: str, new_class: str) -> None:
     new_class is slugified to the label. When the slug changes, the file moves into the
     new label's folder and the slug joins the dataset's class list if absent.
     """
-    item = _find(ds, item_id)
+    item = find_item(ds, item_id)
     label = slugify(new_class.strip())
     if not label:
         raise ValueError("Class is empty after slugifying.")
 
     if label != item.label:
-        old_path = root / item.local_path
-        ext = old_path.suffix
-        new_rel = Path(label) / f"{label}_{item.item_id}{ext}"
-        new_path = root / new_rel
-        new_path.parent.mkdir(parents=True, exist_ok=True)
-        if old_path.exists():
-            old_path.replace(new_path)
-        item.label = label
-        item.local_path = str(new_rel)
+        move_item_to_label(root, item, label)
         if label not in ds.subjects:
             ds.subjects.append(label)
     ds.touch()
@@ -83,13 +89,7 @@ def move_to_class(ds: Dataset, root: Path, item_ids: list[str], subject: str) ->
         if item.item_id not in wanted:
             continue
         if label != item.label:
-            old_path = root / item.local_path
-            new_rel = Path(label) / f"{label}_{item.item_id}{old_path.suffix}"
-            (root / new_rel).parent.mkdir(parents=True, exist_ok=True)
-            if old_path.exists():
-                old_path.replace(root / new_rel)
-            item.label = label
-            item.local_path = str(new_rel)
+            move_item_to_label(root, item, label)
         moved += 1
     if moved:
         ds.touch()

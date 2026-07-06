@@ -1,5 +1,35 @@
 import { useEffect, type ReactNode } from "react";
 
+/** The standard dialog footer: a plain Cancel next to the primary action button. */
+export function ModalActions({
+  cancelLabel = "Cancel",
+  actionLabel,
+  onCancel,
+  onAction,
+  disabled = false,
+}: {
+  cancelLabel?: string;
+  actionLabel: ReactNode;
+  onCancel: () => void;
+  onAction: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="mt-6 flex justify-end gap-3">
+      <button className="text-muted hover:text-text px-4 py-2" onClick={onCancel}>
+        {cancelLabel}
+      </button>
+      <button
+        className="bg-primary rounded-lg px-4 py-2 font-medium text-white disabled:opacity-50"
+        disabled={disabled}
+        onClick={onAction}
+      >
+        {actionLabel}
+      </button>
+    </div>
+  );
+}
+
 export function Modal({
   open,
   onClose,

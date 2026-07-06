@@ -12,7 +12,6 @@ interface DatasetStore {
   refresh: () => Promise<void>;
   toggle: (id: string) => void;
   setSelected: (id: string, on: boolean) => void;
-  selectAll: () => void;
   clearSelection: () => void;
   setSelectMode: (on: boolean) => void;
   replaceItem: (item: Item) => void;
@@ -56,11 +55,6 @@ export const useDataset = create<DatasetStore>((set, get) => ({
     if (on) selected.add(id);
     else selected.delete(id);
     set({ selected });
-  },
-
-  selectAll: () => {
-    const items = get().detail?.items ?? [];
-    set({ selected: new Set(items.map((i) => i.id)) });
   },
 
   clearSelection: () => set({ selected: new Set() }),

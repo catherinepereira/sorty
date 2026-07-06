@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Modal } from "./Modal";
+import { Modal, ModalActions } from "./Modal";
 import { api } from "../api";
 import { prettyClass } from "../classname";
 
@@ -182,21 +182,12 @@ export function GenerateDialog({
         </label>
       </div>
 
-      <div className="mt-6 flex justify-end gap-3">
-        <button
-          className="text-muted hover:text-text px-4 py-2"
-          onClick={onClose}
-        >
-          Cancel
-        </button>
-        <button
-          className="bg-primary rounded-lg px-4 py-2 font-medium text-white disabled:opacity-50"
-          disabled={!ready}
-          onClick={start}
-        >
-          Generate
-        </button>
-      </div>
+      <ModalActions
+        actionLabel="Generate"
+        disabled={!ready}
+        onCancel={onClose}
+        onAction={start}
+      />
     </Modal>
   );
 }

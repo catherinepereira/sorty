@@ -3,8 +3,8 @@
 find_exact_duplicates hashes decoded pixels, so the same image re-encoded or renamed is
 caught. find_outliers embeds each image with a pretrained CNN and flags those DBSCAN
 can't cluster with the rest of their label (scraping junk like charts or text). Both
-return flagged items, apply_flags marks or removes them. Torch is imported lazily so the
-duplicate pass works without it.
+return flagged items, the caller decides what to do with them. Torch is imported lazily
+so the duplicate pass works without it.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 
 from sorty.core.images import DecodeError, open_rgb
-from sorty.core.models import Dataset, DatasetItem, ReviewStatus
+from sorty.core.models import DatasetItem
 
 log = logging.getLogger(__name__)
 
@@ -154,24 +154,3 @@ def find_outliers(
         labels = DBSCAN(eps=eps, min_samples=OUTLIER_MIN_SAMPLES, metric="cosine").fit_predict(feats)
         flagged.extend(item for cluster, item in zip(labels, group) if cluster == -1)
     return flagged
-
-
-def apply_flags(
-    flagged: list[DatasetItem],
-    ds: Dataset,
-    dataset_root: Path,
-    delete: bool = False,
-) -> None:
-    """Mark flagged items invalid, or remove them from disk and manifest if delete."""
-    flagged_ids = {item.item_id for item in flagged}
-    if delete:
-        for item in flagged:
-            path = dataset_root / item.local_path
-            if path.exists():
-                path.unlink()
-        ds.items = [i for i in ds.items if i.item_id not in flagged_ids]
-    else:
-        for item in ds.items:
-            if item.item_id in flagged_ids:
-                item.review_status = ReviewStatus.invalid
-    ds.touch()

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sorty.core import MANIFEST_DIR, Dataset, DatasetItem, save_dataset
+from sorty.core import MANIFEST_DIR, Dataset, DatasetItem, prune_missing, save_dataset
 from sorty.core.download import IMAGE_EXTS
 from sorty.recyclebin import is_binned
 
@@ -47,11 +47,7 @@ def refresh_manifest(ds: Dataset, root: Path) -> dict[str, int]:
             if label not in ds.subjects:
                 ds.subjects.append(label)
 
-    before = len(ds.items)
-    ds.items = [
-        i for i in ds.items if is_binned(i) or (root / i.local_path).exists()
-    ]
-    pruned = before - len(ds.items)
+    pruned = prune_missing(ds, root, keep=is_binned)
 
     if added or pruned:
         ds.touch()

@@ -7,8 +7,8 @@ spinner, a web progress bar, or nothing).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from dataclasses import dataclass
+from typing import Callable, Optional
 
 
 @dataclass
@@ -16,7 +16,6 @@ class Progress:
     total: int = 0
     done: int = 0
     message: str = ""
-    extra: dict[str, Any] = field(default_factory=dict)
 
 
 OnProgress = Optional[Callable[[Progress], None]]

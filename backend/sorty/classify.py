@@ -21,15 +21,12 @@ from sorty.core import (
     train as core_train,
 )
 from sorty.core import find_mismatches as core_find_mismatches
-from sorty.core.classify import SUPPORTED_MODELS
-from sorty.core.progress import Progress as CoreProgress
 
-from sorty.jobs import JobProgress
+from sorty.jobs import JobProgress, bridge
 from sorty.recyclebin import is_binned
 
 __all__ = [
     "Prediction",
-    "SUPPORTED_MODELS",
     "torch_available",
     "model_exists",
     "train",
@@ -40,13 +37,6 @@ __all__ = [
 
 # re-exported so the API and tests can build predictions without a torch dependency
 find_mismatches = core_find_mismatches
-
-
-def _bridge(progress: JobProgress):
-    def on_progress(p: CoreProgress) -> None:
-        progress.sync(p.total, p.done, p.message)
-
-    return on_progress
 
 
 def _candidates(ds: Dataset, root: Path) -> list[DatasetItem]:
@@ -66,7 +56,7 @@ def train(
     """Fine-tune a classifier on the dataset. Returns the training report."""
     return core_train(
         root, items, model=model_name, epochs=epochs, val_split=val_split,
-        img_size=img_size, on_progress=_bridge(progress),
+        img_size=img_size, on_progress=bridge(progress),
     )
 
 
@@ -76,14 +66,14 @@ def infer_all(root: Path, ds: Dataset, progress: JobProgress) -> list[Prediction
     Uses the single trained model, so images it trained on look artificially correct.
     crossval judges every image with a model that never saw it.
     """
-    return core_infer(root, _candidates(ds, root), on_progress=_bridge(progress))
+    return core_infer(root, _candidates(ds, root), on_progress=bridge(progress))
 
 
 def crossval(root: Path, ds: Dataset, folds: int, epochs: int, progress: JobProgress) -> list[Prediction]:
     """Out-of-fold cross-validation, mapping flagged paths back to predictions."""
     items = _candidates(ds, root)
     flagged = core_crossval(
-        root, items, folds=folds, epochs=epochs, on_progress=_bridge(progress)
+        root, items, folds=folds, epochs=epochs, on_progress=bridge(progress)
     )
     by_path = {str((root / i.local_path).resolve()): i for i in items}
     out: list[Prediction] = []

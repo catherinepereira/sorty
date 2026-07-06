@@ -51,14 +51,6 @@ export interface JobProgress {
   message: string;
 }
 
-export interface GenerateResult {
-  records: number;
-  added: number;
-  saved: number;
-  failed: number;
-  dropped: number;
-}
-
 export interface DatasetSummaryStats {
   total: number;
   subjects: number;

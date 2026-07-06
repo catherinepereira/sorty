@@ -13,10 +13,10 @@ from urllib.parse import quote
 from fastapi import HTTPException
 
 from sorty.config import workspace_root
+from sorty.core.download import IMAGE_EXTS
 from sorty.workspace import datasets_path
 
 MEDIA_PREFIX = "/media"
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
 _base_cache: dict[Path, Path] = {}
 

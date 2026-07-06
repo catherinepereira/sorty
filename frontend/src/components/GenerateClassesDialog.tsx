@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Modal } from "./Modal";
+import { Modal, ModalActions } from "./Modal";
 import { api, ApiError } from "../api";
 import { SparklesIcon } from "./icons";
 
@@ -148,22 +148,12 @@ export function GenerateClassesDialog({
         </div>
       )}
 
-      <div className="mt-6 flex justify-end gap-3">
-        <button
-          className="text-muted hover:text-text px-4 py-2"
-          onClick={close}
-        >
-          Cancel
-        </button>
-        <button
-          className="bg-primary rounded-lg px-4 py-2 font-medium text-white disabled:opacity-50"
-          disabled={busy || !chosen.size}
-          onClick={add}
-        >
-          Add {chosen.size > 0 ? chosen.size : ""} class
-          {chosen.size === 1 ? "" : "es"}
-        </button>
-      </div>
+      <ModalActions
+        actionLabel={`Add ${chosen.size > 0 ? chosen.size : ""} class${chosen.size === 1 ? "" : "es"}`}
+        disabled={busy || !chosen.size}
+        onCancel={close}
+        onAction={add}
+      />
     </Modal>
   );
 }

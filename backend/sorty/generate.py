@@ -20,9 +20,8 @@ from sorty.core import (
     source_names,
 )
 from sorty.core import add_images as core_add_images
-from sorty.core.progress import Progress as CoreProgress
 
-from sorty.jobs import JobProgress
+from sorty.jobs import JobProgress, bridge
 from sorty.recyclebin import is_binned
 
 __all__ = [
@@ -60,13 +59,6 @@ def resolve(
     return subjects
 
 
-def _bridge(progress: JobProgress):
-    def on_progress(p: CoreProgress) -> None:
-        progress.sync(p.total, p.done, p.message)
-
-    return on_progress
-
-
 def add_images(
     root: Path,
     subjects: list[str],
@@ -87,7 +79,7 @@ def add_images(
     result = core_add_images(
         ds, root, targets, sources or list(ds.sources), count,
         target_total=target_total,
-        on_progress=_bridge(progress), keep_on_prune=is_binned,
+        on_progress=bridge(progress), keep_on_prune=is_binned,
     )
     save_dataset(ds, root)
     return result

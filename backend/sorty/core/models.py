@@ -63,9 +63,6 @@ class Dataset(BaseModel):
         self.touch()
         return added
 
-    def pending_review(self) -> list[DatasetItem]:
-        return [i for i in self.items if i.review_status == ReviewStatus.pending]
-
     def stats(self) -> dict[str, int]:
         counts: dict[str, int] = {"total": len(self.items), "pending": 0, "valid": 0, "invalid": 0}
         for item in self.items:

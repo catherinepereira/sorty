@@ -40,6 +40,15 @@ class JobProgress:
             return {"total": self.total, "done": self.done, "message": self.message}
 
 
+def bridge(progress: JobProgress):
+    """Adapt a JobProgress into the on_progress callback the core pipeline expects."""
+
+    def on_progress(p) -> None:
+        progress.sync(p.total, p.done, p.message)
+
+    return on_progress
+
+
 @dataclass
 class Job:
     job_id: str

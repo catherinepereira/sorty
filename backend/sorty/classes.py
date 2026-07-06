@@ -11,6 +11,7 @@ from pathlib import Path
 
 from send2trash import send2trash
 
+from sorty.annotate import move_item_to_label
 from sorty.core import Dataset, DatasetItem, slugify
 
 
@@ -66,14 +67,7 @@ def rename_class(ds: Dataset, root: Path, old_name: str, new_name: str) -> int:
     (root / new_label).mkdir(parents=True, exist_ok=True)
     moved = 0
     for item in _items_for(ds, old_name):
-        old_path = root / item.local_path
-        ext = old_path.suffix
-        new_rel = Path(new_label) / f"{new_label}_{item.item_id}{ext}"
-        if old_path.exists():
-            (root / new_rel).parent.mkdir(parents=True, exist_ok=True)
-            old_path.replace(root / new_rel)
-        item.label = new_label
-        item.local_path = str(new_rel)
+        move_item_to_label(root, item, new_label)
         moved += 1
 
     ds.subjects = [new_label if s == old_label else s for s in ds.subjects]
@@ -109,15 +103,7 @@ def merge_classes(
         if source_label == target_label:
             continue
         for item in _items_for(ds, source_name):
-            old_path = root / item.local_path
-            ext = old_path.suffix
-            new_rel = Path(target_label) / f"{target_label}_{item.item_id}{ext}"
-            new_path = root / new_rel
-            if old_path.exists():
-                new_path.parent.mkdir(parents=True, exist_ok=True)
-                old_path.replace(new_path)
-            item.label = target_label
-            item.local_path = str(new_rel)
+            move_item_to_label(root, item, target_label)
             moved += 1
 
         ds.subjects = [s for s in ds.subjects if s != source_label]

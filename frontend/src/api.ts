@@ -45,7 +45,6 @@ export { ApiError };
 
 export const api = {
   sources: () => req<{ sources: string[] }>("/api/sources"),
-  models: () => req<{ models: string[] }>("/api/models"),
 
   listDatasets: () =>
     req<{ datasets: DatasetSummary[] }>("/api/datasets").then(

@@ -6,6 +6,7 @@ import { api } from "../api";
 import { useDataset } from "../stores/dataset";
 import type { Item, Status } from "../types";
 import { statusLabel } from "../status";
+import { humanBytes } from "../format";
 import { CloseIcon, TrashIcon } from "./icons";
 
 const STATUSES: Status[] = ["pending", "valid"];
@@ -75,7 +76,7 @@ export function AnnotateDialog({
 
   return (
     <Modal open onClose={onClose} width="max-w-xl">
-      <div className="space-y-4">
+      <div className="space-y-5">
         <div className="flex items-center gap-2">
           <h2 className="flex-1 truncate text-lg font-semibold">
             {prettyClass(current.label)}
@@ -104,9 +105,13 @@ export function AnnotateDialog({
           className="bg-bg max-h-[60vh] w-full rounded-lg object-contain"
         />
 
+        <hr className="border-border" />
+
         <ItemDetail item={current} dims={dims} />
 
-        <div className="flex flex-wrap items-end gap-4">
+        <hr className="border-border" />
+
+        <div className="flex flex-wrap items-end gap-4 pb-1">
           <div className="min-w-40 flex-1">
             <label className="text-sm font-medium">Class</label>
             <Select
@@ -141,18 +146,6 @@ export function AnnotateDialog({
   );
 }
 
-function humanBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  const units = ["KB", "MB", "GB"];
-  let value = n / 1024;
-  let i = 0;
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024;
-    i++;
-  }
-  return `${value.toFixed(1)} ${units[i]}`;
-}
-
 function ItemDetail({
   item,
   dims,
@@ -165,7 +158,7 @@ function ItemDetail({
   } | null;
 }) {
   return (
-    <dl className="mt-3 space-y-1 text-xs">
+    <dl className="space-y-1 text-xs">
       <Row label="Source" value={item.source} />
       {item.source_url && (
         <div className="flex justify-between gap-2">

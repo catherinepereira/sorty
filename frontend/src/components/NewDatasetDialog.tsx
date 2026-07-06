@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Modal } from "./Modal";
+import { Modal, ModalActions } from "./Modal";
 import { api, ApiError } from "../api";
 import { ClassEditor } from "./ClassEditor";
 
@@ -80,21 +80,12 @@ export function NewDatasetDialog({
             />
             {error && <p className="text-bad text-sm">{error}</p>}
           </div>
-          <div className="mt-6 flex justify-end gap-3">
-            <button
-              className="text-muted hover:text-text px-4 py-2"
-              onClick={close}
-            >
-              Cancel
-            </button>
-            <button
-              className="bg-primary rounded-lg px-4 py-2 font-medium text-white disabled:opacity-50"
-              disabled={!name.trim() || busy}
-              onClick={createAndAdvance}
-            >
-              Next: classes
-            </button>
-          </div>
+          <ModalActions
+            actionLabel="Next: classes"
+            disabled={!name.trim() || busy}
+            onCancel={close}
+            onAction={createAndAdvance}
+          />
         </>
       ) : (
         <>
@@ -110,21 +101,13 @@ export function NewDatasetDialog({
               setClasses={setClasses}
             />
           </div>
-          <div className="mt-6 flex justify-end gap-3">
-            <button
-              className="text-muted hover:text-text px-4 py-2"
-              onClick={() => onDone(slug)}
-            >
-              Skip
-            </button>
-            <button
-              className="bg-primary rounded-lg px-4 py-2 font-medium text-white disabled:opacity-50"
-              disabled={busy}
-              onClick={finish}
-            >
-              Save classes
-            </button>
-          </div>
+          <ModalActions
+            cancelLabel="Skip"
+            actionLabel="Save classes"
+            disabled={busy}
+            onCancel={() => onDone(slug)}
+            onAction={finish}
+          />
         </>
       )}
     </Modal>

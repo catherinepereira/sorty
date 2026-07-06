@@ -170,16 +170,6 @@ def list_sources() -> dict[str, list[str]]:
     return {"sources": generate.source_names()}
 
 
-@app.get("/api/models")
-def list_models() -> dict[str, list[str]]:
-    return {"models": classify.SUPPORTED_MODELS}
-
-
-@app.get("/api/torch")
-def torch_probe() -> dict[str, bool]:
-    return {"available": classify.torch_available()}
-
-
 # ----- workspace -----
 
 @app.get("/api/datasets")
@@ -263,7 +253,7 @@ def dataset_summary(name: str) -> dict[str, Any]:
 def get_item(name: str, item_id: str) -> dict[str, Any]:
     ds, root = _load(name)
     try:
-        item = annotate._find(ds, item_id)
+        item = annotate.find_item(ds, item_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="No such item")
     view = _item_view(item, root)
@@ -345,7 +335,7 @@ def set_label(name: str, item_id: str, body: LabelBody) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     save_dataset(ds, root)
-    return {"item": _item_view(annotate._find(ds, item_id), root)}
+    return {"item": _item_view(annotate.find_item(ds, item_id), root)}
 
 
 @app.post("/api/datasets/{name}/move-to-class")
@@ -367,7 +357,7 @@ def set_status(name: str, item_id: str, body: StatusBody) -> dict[str, Any]:
     except KeyError:
         raise HTTPException(status_code=404, detail="No such item")
     save_dataset(ds, root)
-    return {"item": _item_view(annotate._find(ds, item_id), root)}
+    return {"item": _item_view(annotate.find_item(ds, item_id), root)}
 
 
 @app.post("/api/datasets/{name}/set-status")

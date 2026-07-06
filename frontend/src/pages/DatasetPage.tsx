@@ -120,6 +120,11 @@ export function DatasetPage() {
   };
   const { job, start, running, clear } = useJob(onJobDone);
 
+  const inferJob = useJob((state) => {
+    if (state.status === "done") setMismatches(state.result as Prediction[]);
+    else if (state.status === "error") notify(state.error, "error");
+  });
+
   useEffect(() => {
     load(name);
     // reattach to a generate/train job left running when the page was last open,
@@ -153,15 +158,7 @@ export function DatasetPage() {
     clear();
     try {
       const { job_id } = await api.infer(name);
-      const poll = window.setInterval(async () => {
-        const state = await api.job(job_id);
-        if (state.status !== "running") {
-          window.clearInterval(poll);
-          if (state.status === "done")
-            setMismatches(state.result as Prediction[]);
-          else notify(state.error, "error");
-        }
-      }, 700);
+      inferJob.start(job_id);
     } catch (e) {
       notify(e instanceof ApiError ? e.message : "Could not run inference", "error");
     }
