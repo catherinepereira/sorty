@@ -340,7 +340,7 @@ def _fold_indices(n: int, k: int) -> list[list[int]]:
     return folds
 
 
-def _find_lr_once(samples, class_to_idx, img_size, device) -> float:
+def _find_lr_once(samples, class_to_idx, model_name, img_size, device) -> float:
     import torch.nn as nn
     from torch.utils.data import DataLoader
 
@@ -349,11 +349,11 @@ def _find_lr_once(samples, class_to_idx, img_size, device) -> float:
         _make_dataset(samples, class_to_idx, train_tf, img_size),
         batch_size=BATCH_SIZE, shuffle=True, num_workers=0, pin_memory=True,
     )
-    model = _build_model("mobilenet_v2", len(class_to_idx)).to(device)
+    model = _build_model(model_name, len(class_to_idx)).to(device)
     return _find_lr(model, loader, device, nn.CrossEntropyLoss())
 
 
-def _train_fold(train_samples, class_to_idx, epochs, img_size, device, lr):
+def _train_fold(train_samples, class_to_idx, model_name, epochs, img_size, device, lr):
     import torch
     import torch.nn as nn
     from torch.utils.data import DataLoader
@@ -363,7 +363,7 @@ def _train_fold(train_samples, class_to_idx, epochs, img_size, device, lr):
         _make_dataset(train_samples, class_to_idx, train_tf, img_size),
         batch_size=BATCH_SIZE, shuffle=True, num_workers=0, pin_memory=True,
     )
-    model = _build_model("mobilenet_v2", len(class_to_idx)).to(device)
+    model = _build_model(model_name, len(class_to_idx)).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     criterion = nn.CrossEntropyLoss()
@@ -399,6 +399,7 @@ def crossval(
     dataset_root: Path,
     items: list[DatasetItem],
     *,
+    model: str = "mobilenet_v2",
     folds: int = 5,
     epochs: int = 5,
     img_size: int = 224,
@@ -428,7 +429,7 @@ def crossval(
 
     random.Random(seed).shuffle(samples)
     fold_idx = _fold_indices(len(samples), folds)
-    lr = _find_lr_once(samples, class_to_idx, img_size, device)
+    lr = _find_lr_once(samples, class_to_idx, model, img_size, device)
 
     predictions: list[dict] = []
     skipped = 0
@@ -438,8 +439,8 @@ def crossval(
         val_samples = [samples[i] for i in fold_idx[f]]
         train_samples = [s for i, s in enumerate(samples) if i not in val_ids]
         train_classes = {label for _, label in train_samples}
-        model = _train_fold(train_samples, class_to_idx, epochs, img_size, device, lr)
-        preds = _predict_fold(model, val_samples, class_to_idx, img_size, device)
+        net = _train_fold(train_samples, class_to_idx, model, epochs, img_size, device, lr)
+        preds = _predict_fold(net, val_samples, class_to_idx, img_size, device)
         for (path, true_label), pred in zip(val_samples, preds):
             if true_label not in train_classes:
                 skipped += 1

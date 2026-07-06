@@ -7,20 +7,29 @@ polled through /api/jobs/{id}. Images are served by the traversal-safe media rou
 
 from __future__ import annotations
 
+import io
+import json
+import os
+import tempfile
+import zipfile
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 from sorty.core import (
+    MANIFEST_DIR,
     Dataset,
     DatasetItem,
     ReviewStatus,
     find_duplicate_groups,
     has_manifest,
     load_dataset,
+    manifest_path,
+    meta_dir,
     save_dataset,
 )
 
@@ -123,8 +132,13 @@ class IdsBody(BaseModel):
 
 
 class TrainBody(BaseModel):
-    folds: int = 5
+    model: str = "mobilenet_v2"
     epochs: int = 8
+    valid_only: bool = False
+
+
+class CrossvalBody(TrainBody):
+    folds: int = 5
 
 
 class RenameBody(BaseModel):
@@ -505,20 +519,36 @@ def start_dedup(name: str) -> dict[str, str]:
     return {"job_id": jobs.submit(work)}
 
 
-@app.post("/api/datasets/{name}/train")
-def start_train(name: str, body: TrainBody) -> dict[str, str]:
+def _check_train_body(body: TrainBody | CrossvalBody) -> None:
+    if not classify.torch_available():
+        raise HTTPException(status_code=503, detail="Training needs PyTorch")
+    if body.model not in classify.SUPPORTED_MODELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown model {body.model!r}. Choose from {classify.SUPPORTED_MODELS}",
+        )
+    if not 1 <= body.epochs <= 50:
+        raise HTTPException(status_code=400, detail="Epochs must be between 1 and 50.")
+
+
+@app.post("/api/datasets/{name}/crossval")
+def start_crossval(name: str, body: CrossvalBody) -> dict[str, str]:
     """Cross-validate a model over the dataset and store each item's predicted class.
 
     Every image is predicted by a fold model that never trained on it. The prediction
     lands on the item as predicted_label, which the grid filters on.
     """
     root = _root(name)
-    if not classify.torch_available():
-        raise HTTPException(status_code=503, detail="Training needs PyTorch")
+    _check_train_body(body)
+    if not 2 <= body.folds <= 10:
+        raise HTTPException(status_code=400, detail="Folds must be between 2 and 10.")
 
     def work(p: JobProgress):
         ds = load_dataset(root)
-        preds = classify.crossval(root, ds, body.folds, body.epochs, p)
+        preds = classify.crossval(
+            root, ds, body.folds, body.epochs, p,
+            model=body.model, valid_only=body.valid_only,
+        )
         by_id = {pred.item_id: pred.predicted for pred in preds}
         for item in ds.items:
             item.predicted_label = by_id.get(item.item_id)
@@ -531,6 +561,83 @@ def start_train(name: str, body: TrainBody) -> dict[str, str]:
         return {"predicted": len(by_id), "mismatched": mismatched}
 
     return {"job_id": jobs.submit(work)}
+
+
+@app.post("/api/datasets/{name}/train")
+def start_train(name: str, body: TrainBody) -> dict[str, str]:
+    """Train one model on the whole dataset and save it under .sorty/ for export."""
+    root = _root(name)
+    _check_train_body(body)
+
+    def work(p: JobProgress):
+        ds = load_dataset(root)
+        return classify.train_full(
+            root, ds, body.epochs, p, model=body.model, valid_only=body.valid_only
+        )
+
+    return {"job_id": jobs.submit(work)}
+
+
+@app.get("/api/datasets/{name}/model")
+def model_info(name: str) -> dict[str, Any]:
+    """Whether a saved model exists, plus its training report when it does."""
+    root = _root(name)
+    report_path = meta_dir(root) / "report.json"
+    report = None
+    if report_path.exists():
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    return {"trained": classify.model_exists(root), "report": report}
+
+
+@app.get("/api/datasets/{name}/model/export")
+def export_model(name: str) -> Response:
+    """The saved model as a zip: TorchScript weights, class order, training report."""
+    root = _root(name)
+    if not classify.model_exists(root):
+        raise HTTPException(status_code=404, detail="No trained model to export")
+    md = meta_dir(root)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for filename in ("model.pt", "labels.json", "report.json"):
+            path = md / filename
+            if path.exists():
+                z.write(path, filename)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{name}-model.zip"'
+        },
+    )
+
+
+@app.get("/api/datasets/{name}/export")
+def export_dataset(name: str) -> FileResponse:
+    """The dataset as a zip: class folders of images plus the manifest.
+
+    Built as a temp file rather than in memory, a dataset can run to hundreds of MB.
+    Images are stored uncompressed since they already are.
+    """
+    root = _root(name)
+    ds = load_dataset(root)
+    fd, tmp = tempfile.mkstemp(suffix=".zip")
+    os.close(fd)
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:
+        for item in ds.items:
+            if is_binned(item):
+                continue
+            path = root / item.local_path
+            if path.exists():
+                z.write(path, item.local_path.replace("\\", "/"))
+        mp = manifest_path(root)
+        if mp.exists():
+            z.write(mp, f"{MANIFEST_DIR}/{mp.name}")
+    return FileResponse(
+        tmp,
+        media_type="application/zip",
+        filename=f"{name}.zip",
+        background=BackgroundTask(os.remove, tmp),
+    )
 
 
 @app.get("/api/jobs/{job_id}")

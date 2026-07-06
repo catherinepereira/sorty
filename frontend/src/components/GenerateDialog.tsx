@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Modal, ModalActions } from "./Modal";
+import { Segmented } from "./Segmented";
 import { api, ApiError } from "../api";
 import { prettyClass } from "../classname";
 
@@ -186,20 +187,14 @@ export function GenerateDialog({
         <hr className="border-border" />
 
         <div className="space-y-2">
-          <div className="flex gap-2 text-sm">
-            <button
-              className={`rounded-lg px-3 py-1.5 ${countMode === "add" ? "bg-primary text-white" : "text-muted"}`}
-              onClick={() => setCountMode("add")}
-            >
-              Add per class
-            </button>
-            <button
-              className={`rounded-lg px-3 py-1.5 ${countMode === "total" ? "bg-primary text-white" : "text-muted"}`}
-              onClick={() => setCountMode("total")}
-            >
-              Total per class
-            </button>
-          </div>
+          <Segmented
+            value={countMode}
+            options={[
+              { value: "add", label: "Add per class" },
+              { value: "total", label: "Total per class" },
+            ]}
+            onChange={(v) => setCountMode(v as "add" | "total")}
+          />
           <label className="text-muted flex items-center gap-2 text-sm">
             {countMode === "add"
               ? "New images per class"

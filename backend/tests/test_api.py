@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import io
+import json
 import shutil
 import time
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -212,13 +215,13 @@ def test_dedup_flags_without_binning(with_dataset):
     assert after == before
 
 
-def test_train_stores_predictions(with_dataset):
+def test_crossval_stores_predictions(with_dataset):
     from sorty import api as api_module
     from sorty.core import Prediction
 
     items = with_dataset.get("/api/datasets/birds").json()["items"]
     # a canned crossval: first item mis-classified, the rest agree with their label
-    def fake_crossval(root, ds, folds, epochs, progress):
+    def fake_crossval(root, ds, folds, epochs, progress, *, model, valid_only):
         preds = [
             Prediction(item_id=i["id"], label=i["label"], predicted=i["label"], local_path=i["local_path"])
             for i in items
@@ -232,7 +235,7 @@ def test_train_stores_predictions(with_dataset):
 
     with mock.patch.object(api_module.classify, "torch_available", lambda: True), \
          mock.patch.object(api_module.classify, "crossval", fake_crossval):
-        r = with_dataset.post("/api/datasets/birds/train", json={})
+        r = with_dataset.post("/api/datasets/birds/crossval", json={})
         body = _poll(with_dataset, r.json()["job_id"])
 
     assert body["status"] == "done"
@@ -243,6 +246,61 @@ def test_train_stores_predictions(with_dataset):
     assert by_id[items[0]["id"]]["predicted"] != by_id[items[0]["id"]]["label"]
     correct = [i for i in after if i["predicted"] == i["label"]]
     assert len(correct) == 5
+
+
+def test_train_rejects_unknown_model(with_dataset):
+    from sorty import api as api_module
+
+    with mock.patch.object(api_module.classify, "torch_available", lambda: True):
+        for route in ("train", "crossval"):
+            r = with_dataset.post(
+                f"/api/datasets/birds/{route}", json={"model": "vgg16"}
+            )
+            assert r.status_code == 400
+
+
+def test_train_runs_full_training_and_export(with_dataset, tmp_path):
+    from sorty import api as api_module
+
+    def fake_train_full(root, ds, epochs, progress, *, model, valid_only):
+        md = api_module.meta_dir(root)
+        (md / "model.pt").write_bytes(b"weights")
+        (md / "labels.json").write_text('["robin", "sparrow"]', encoding="utf-8")
+        report = {"model": model, "epochs": epochs, "overall_accuracy": 0.9}
+        (md / "report.json").write_text(json.dumps(report), encoding="utf-8")
+        return report
+
+    assert with_dataset.get("/api/datasets/birds/model").json()["trained"] is False
+    assert with_dataset.get("/api/datasets/birds/model/export").status_code == 404
+
+    with mock.patch.object(api_module.classify, "torch_available", lambda: True), \
+         mock.patch.object(api_module.classify, "train_full", fake_train_full):
+        r = with_dataset.post("/api/datasets/birds/train", json={"epochs": 3})
+        body = _poll(with_dataset, r.json()["job_id"])
+
+    assert body["status"] == "done"
+    assert body["result"]["overall_accuracy"] == 0.9
+
+    info = with_dataset.get("/api/datasets/birds/model").json()
+    assert info["trained"] is True
+    assert info["report"]["epochs"] == 3
+
+    export = with_dataset.get("/api/datasets/birds/model/export")
+    assert export.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(export.content)) as z:
+        assert set(z.namelist()) == {"model.pt", "labels.json", "report.json"}
+
+
+def test_export_dataset_zips_images_and_manifest(with_dataset):
+    items = with_dataset.get("/api/datasets/birds").json()["items"]
+
+    r = with_dataset.get("/api/datasets/birds/export")
+    assert r.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        names = set(z.namelist())
+    for i in items:
+        assert i["local_path"].replace("\\", "/") in names
+    assert any(n.endswith("manifest.json") for n in names)
 
 
 def test_job_404(client):

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, ApiError } from "../api";
+import { api, ApiError, type ModelReport } from "../api";
 import { useDataset } from "../stores/dataset";
 import { useJob } from "../hooks/useJob";
 import { useConfirm } from "../hooks/useConfirm";
@@ -8,7 +8,9 @@ import { Header } from "../components/Header";
 import { ImageCard } from "../components/ImageCard";
 import { AnnotateDialog } from "../components/AnnotateDialog";
 import { GenerateDialog } from "../components/GenerateDialog";
-import { RenameDialog } from "../components/RenameDialog";
+import { TrainDialog } from "../components/TrainDialog";
+import { ModelExportDialog } from "../components/ModelExportDialog";
+import { ExportDatasetDialog } from "../components/ExportDatasetDialog";
 import { SummaryPanel } from "../components/SummaryPanel";
 import { MLToolsPanel } from "../components/MLToolsPanel";
 import { Expandable } from "../components/Expandable";
@@ -26,7 +28,8 @@ import { statusLabel } from "../status";
 import { prettyClass } from "../classname";
 import { clearActiveJob, getActiveJob, setActiveJob } from "../activeJobs";
 
-type DialogName = "generate" | "rename" | null;
+type DialogName =
+  "generate" | "crossval" | "train" | "export" | "exportData" | null;
 
 // banner colors: green for a completed sync, red for an error, amber for filter/info
 const BANNER_TONE = {
@@ -60,7 +63,8 @@ export function DatasetPage() {
   } | null>(null);
   const notify = (text: string, tone: "info" | "success" | "error" = "info") =>
     setBanner({ text, tone });
-  const [renameError, setRenameError] = useState("");
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
   const [query, setQuery] = useState("");
   const [flaggedIds, setFlaggedIds] = useState<string[] | null>(null);
   // set for exact dedup: each inner list is one duplicate set, rendered on its own row
@@ -74,19 +78,22 @@ export function DatasetPage() {
 
   const items = useMemo(() => detail?.items ?? [], [detail]);
 
-  // declared sources plus any seen on items (e.g. "unknown"), so every source that can
-  // appear in the grid is offered as a filter option
-  const sourceOptions = useMemo(() => {
-    const seen = new Set(detail?.sources ?? []);
-    for (const i of items) seen.add(i.source);
-    return [...seen].sort();
-  }, [detail, items]);
+  // only sources that appear on items, so the filter never offers an empty bucket
+  const sourceOptions = useMemo(
+    () => [...new Set(items.map((i) => i.source))].sort(),
+    [items],
+  );
 
+  // per-class counts under the active status filter, so checking Unreviewed shows how
+  // many of each class are left to review
   const classCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const i of items) counts[i.label] = (counts[i.label] ?? 0) + 1;
+    for (const i of items) {
+      if (filters.statuses.size && !filters.statuses.has(i.status)) continue;
+      counts[i.label] = (counts[i.label] ?? 0) + 1;
+    }
     return counts;
-  }, [items]);
+  }, [items, filters.statuses]);
 
   const hasPredictions = useMemo(
     () => items.some((i) => i.predicted !== null),
@@ -124,6 +131,15 @@ export function DatasetPage() {
     );
   }, [items, filters, flaggedIds, query]);
 
+  // the saved model's training report, which shows the export tile in the Tools panel
+  const [modelReport, setModelReport] = useState<ModelReport | null>(null);
+  const loadModelInfo = useCallback(() => {
+    api
+      .modelInfo(name)
+      .then((info) => setModelReport(info.trained ? info.report : null))
+      .catch(() => {});
+  }, [name]);
+
   // set while a flag-and-filter dedup job runs, so onJobDone can read its result
   const dedupRunning = useRef(false);
 
@@ -154,10 +170,17 @@ export function DatasetPage() {
     const result = job.result as {
       predicted?: number;
       mismatched?: number;
+      overall_accuracy?: number;
     } | null;
     if (result && result.mismatched !== undefined) {
       notify(
         `Model classified ${result.predicted} images, ${result.mismatched} disagree with their label. Filter by classification to review them.`,
+        "success",
+      );
+    } else if (result && result.overall_accuracy !== undefined) {
+      loadModelInfo();
+      notify(
+        `Model trained, ${Math.round(result.overall_accuracy * 100)}% validation accuracy. Export it from the Tools panel.`,
         "success",
       );
     }
@@ -166,6 +189,7 @@ export function DatasetPage() {
 
   useEffect(() => {
     load(name);
+    loadModelInfo();
     // reattach to a generate/train job left running when the page was last open,
     // dropping the stored id if that job no longer exists on the server
     const active = getActiveJob(name);
@@ -175,7 +199,7 @@ export function DatasetPage() {
         .then(() => start(active))
         .catch(() => clearActiveJob(name));
     }
-  }, [name, load, start]);
+  }, [name, load, start, loadModelInfo]);
 
   const runJob = async (fn: () => Promise<{ job_id: string }>) => {
     setBanner(null);
@@ -218,13 +242,14 @@ export function DatasetPage() {
   };
 
   const rename = async (newName: string) => {
-    setRenameError("");
+    setEditingName(false);
+    const next = newName.trim();
+    if (!next || next === name) return;
     try {
-      const { name: slug } = await api.renameDataset(name, newName);
-      setDialog(null);
+      const { name: slug } = await api.renameDataset(name, next);
       nav(`/d/${slug}`);
     } catch (e) {
-      setRenameError(e instanceof ApiError ? e.message : "Could not rename");
+      notify(e instanceof ApiError ? e.message : "Could not rename", "error");
     }
   };
 
@@ -232,7 +257,7 @@ export function DatasetPage() {
     setBanner(null);
     try {
       const { added, pruned } = await api.refresh(name);
-      notify(`Refreshed: ${added} added, ${pruned} pruned`, "success");
+      notify(`Synced with disk: ${added} added, ${pruned} pruned`, "success");
       refresh();
     } catch (e) {
       notify(e instanceof ApiError ? e.message : "Could not refresh", "error");
@@ -339,16 +364,38 @@ export function DatasetPage() {
   return (
     <>
       <Header
-        title={name}
+        title={
+          editingName ? (
+            <input
+              autoFocus
+              className="border-primary w-64 border-b bg-transparent text-2xl font-bold outline-none"
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") rename(nameDraft);
+                if (e.key === "Escape") setEditingName(false);
+              }}
+              onBlur={() => rename(nameDraft)}
+              aria-label="Dataset name"
+            />
+          ) : (
+            name
+          )
+        }
         titleAction={
-          <button
-            onClick={() => setDialog("rename")}
-            className="text-muted hover:text-primary p-1"
-            title="Rename dataset"
-            aria-label="Rename dataset"
-          >
-            <PencilIcon className="h-4 w-4" />
-          </button>
+          !editingName && (
+            <button
+              onClick={() => {
+                setNameDraft(name);
+                setEditingName(true);
+              }}
+              className="text-muted hover:text-primary p-1"
+              title="Rename dataset"
+              aria-label="Rename dataset"
+            >
+              <PencilIcon className="h-4 w-4" />
+            </button>
+          )
         }
         subtitle={`${s.total} images, ${s.pending} unreviewed, ${s.valid} valid`}
         backTo="/"
@@ -357,8 +404,8 @@ export function DatasetPage() {
             <button
               onClick={refreshFromDisk}
               className="border-good/30 bg-good/10 text-good hover:bg-good/20 flex h-10 w-10 items-center justify-center rounded-lg border"
-              title="Refresh from disk"
-              aria-label="Refresh from disk"
+              title="Sync with disk"
+              aria-label="Sync with disk"
             >
               <RefreshIcon className="h-5 w-5" />
             </button>
@@ -385,9 +432,13 @@ export function DatasetPage() {
       <div className="mb-4">
         <Expandable title="Tools" defaultOpen>
           <MLToolsPanel
+            busy={Boolean(job && running)}
             onGenerate={() => setDialog("generate")}
             onDuplicates={runDedup}
-            onTrain={() => runJob(() => api.train(name))}
+            onCrossval={() => setDialog("crossval")}
+            onTrain={() => setDialog("train")}
+            onExport={modelReport ? () => setDialog("export") : undefined}
+            onExportDataset={() => setDialog("exportData")}
           />
         </Expandable>
       </div>
@@ -553,15 +604,34 @@ export function DatasetPage() {
         onClose={() => setDialog(null)}
         onStart={(body) => runJob(() => api.generate(name, body))}
       />
-      <RenameDialog
-        open={dialog === "rename"}
-        current={name}
-        error={renameError}
-        onClose={() => {
-          setDialog(null);
-          setRenameError("");
-        }}
-        onRename={rename}
+      <TrainDialog
+        open={dialog === "train" || dialog === "crossval"}
+        mode={dialog === "crossval" ? "crossval" : "train"}
+        items={items}
+        onClose={() => setDialog(null)}
+        onStart={(body) =>
+          runJob(() =>
+            dialog === "crossval"
+              ? api.crossval(name, body)
+              : api.train(name, {
+                  model: body.model,
+                  epochs: body.epochs,
+                  valid_only: body.valid_only,
+                }),
+          )
+        }
+      />
+      <ExportDatasetDialog
+        open={dialog === "exportData"}
+        datasetName={name}
+        counts={s}
+        onClose={() => setDialog(null)}
+      />
+      <ModelExportDialog
+        open={dialog === "export"}
+        report={modelReport}
+        exportUrl={`/api/datasets/${name}/model/export`}
+        onClose={() => setDialog(null)}
       />
       {confirmEl}
     </>

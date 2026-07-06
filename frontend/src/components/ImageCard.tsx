@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { Item } from "../types";
 import { StatusChip } from "./StatusChip";
+import { TrashIcon } from "./icons";
 import { prettyClass } from "../classname";
 
 // memoized so a drag-select that flips one card's selection re-renders only that card,
@@ -49,11 +50,11 @@ export const ImageCard = memo(function ImageCard({
           onDelete(item.id);
         }}
         onMouseDown={(e) => e.stopPropagation()}
-        className="bg-bad/90 absolute top-2 right-2 z-[1] flex h-6 w-6 items-center justify-center rounded-full text-sm text-white opacity-0 transition group-hover:opacity-100"
+        className="bg-bad/90 absolute top-2 right-2 z-[1] flex h-6 w-6 items-center justify-center rounded-full text-white opacity-0 transition group-hover:opacity-100"
         aria-label={`Delete ${name} to bin`}
         title="Delete to bin"
       >
-        ×
+        <TrashIcon className="h-3.5 w-3.5" />
       </button>
       <button className="block w-full" onClick={clickCard}>
         <img

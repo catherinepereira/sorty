@@ -156,7 +156,10 @@ export function FilterSidebar({
           />
         </Section>
 
-        <Section title="Classes" count={filters.classes.size}>
+        <Section
+          title={`Classes (${classes.length})`}
+          count={filters.classes.size}
+        >
           <CheckList
             options={classes}
             chosen={filters.classes}

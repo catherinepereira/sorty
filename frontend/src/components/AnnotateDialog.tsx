@@ -416,7 +416,7 @@ export function AnnotateDialog({
 
 function ItemDetail({ item, dims }: { item: Item; dims: FileDetails | null }) {
   return (
-    <dl className="space-y-1 text-xs">
+    <dl className="space-y-1 text-sm">
       <Row label="Source" value={item.source} />
       {item.source_url && (
         <div className="flex justify-between gap-2">
@@ -425,7 +425,7 @@ function ItemDetail({ item, dims }: { item: Item; dims: FileDetails | null }) {
             href={item.source_url}
             target="_blank"
             rel="noreferrer"
-            className="text-primary min-w-0 truncate hover:underline"
+            className="text-primary max-w-[50%] truncate hover:underline"
             title={item.source_url}
           >
             {item.source_url}
@@ -433,14 +433,6 @@ function ItemDetail({ item, dims }: { item: Item; dims: FileDetails | null }) {
         </div>
       )}
       {item.title && <Row label="Title" value={item.title} />}
-      {item.predicted && (
-        <div className="flex justify-between gap-2">
-          <dt className="text-muted">Model classification</dt>
-          <dd className={item.predicted === item.label ? "" : "text-bad"}>
-            {prettyClass(item.predicted)}
-          </dd>
-        </div>
-      )}
       <Row label="Folder" value={item.directory} />
       <Row label="File" value={item.filename} />
       {dims && dims.width && (
@@ -455,6 +447,16 @@ function ItemDetail({ item, dims }: { item: Item; dims: FileDetails | null }) {
           value={new Date(dims.ingested * 1000).toLocaleString()}
         />
       )}
+      {item.predicted && (
+        <div className="flex justify-between gap-2 pt-3">
+          <dt className="text-muted">Model classification</dt>
+          <dd
+            className={item.predicted === item.label ? "text-good" : "text-bad"}
+          >
+            {prettyClass(item.predicted)}
+          </dd>
+        </div>
+      )}
     </dl>
   );
 }
@@ -462,8 +464,8 @@ function ItemDetail({ item, dims }: { item: Item; dims: FileDetails | null }) {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between gap-2">
-      <dt className="text-muted">{label}</dt>
-      <dd className="truncate" title={value}>
+      <dt className="text-muted shrink-0">{label}</dt>
+      <dd className="max-w-[50%] truncate" title={value}>
         {value}
       </dd>
     </div>

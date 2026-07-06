@@ -261,18 +261,20 @@ function ClassManager({
                 onBlur={saveRename}
               />
             ) : (
-              <span className="flex-1 truncate">{prettyClass(c.name)}</span>
+              <div className="flex min-w-0 flex-1 items-center gap-1">
+                <span className="truncate">{prettyClass(c.name)}</span>
+                <button
+                  onClick={() => startEdit(c.name)}
+                  disabled={busy}
+                  className="text-muted hover:text-primary shrink-0 p-1 disabled:opacity-40"
+                  title={`Rename ${prettyClass(c.name)}`}
+                  aria-label={`Rename ${prettyClass(c.name)}`}
+                >
+                  <PencilIcon />
+                </button>
+              </div>
             )}
             <span className="text-muted">{c.count}</span>
-            <button
-              onClick={() => startEdit(c.name)}
-              disabled={busy}
-              className="text-muted hover:text-primary p-1 disabled:opacity-40"
-              title={`Rename ${prettyClass(c.name)}`}
-              aria-label={`Rename ${prettyClass(c.name)}`}
-            >
-              <PencilIcon />
-            </button>
             <button
               onClick={() => deleteClass(c.name, c.count)}
               disabled={busy}

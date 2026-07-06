@@ -55,6 +55,37 @@ export function BrainIcon(p: IconProps) {
   );
 }
 
+export function LayersIcon(p: IconProps) {
+  // stacked folds for cross-validation
+  return (
+    <Svg {...p}>
+      <path d="M12 3l9 5-9 5-9-5z" />
+      <path d="M3 13l9 5 9-5" />
+    </Svg>
+  );
+}
+
+export function ArchiveIcon(p: IconProps) {
+  // a lidded box for the dataset export
+  return (
+    <Svg {...p}>
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+      <path d="M10 12h4" />
+    </Svg>
+  );
+}
+
+export function DownloadIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M12 4v11" />
+      <path d="M7 11l5 5 5-5" />
+      <path d="M4 20h16" />
+    </Svg>
+  );
+}
+
 export function TrashIcon(p: IconProps) {
   return (
     <Svg {...p}>

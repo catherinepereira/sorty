@@ -15,7 +15,7 @@ export function Header({
   backLabel = "Home",
   actions,
 }: {
-  title?: string;
+  title?: React.ReactNode;
   titleAction?: React.ReactNode;
   subtitle?: string;
   mood?: Mood;

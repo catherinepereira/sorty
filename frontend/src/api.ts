@@ -7,6 +7,19 @@ import type {
   Status,
 } from "./types";
 
+// mirrors report.json as written by training
+export interface ModelReport {
+  model: string;
+  epochs: number;
+  lr: number;
+  val_split: number;
+  n_train: number;
+  n_val: number;
+  overall_accuracy: number;
+  per_class: Record<string, { precision: number; recall: number; f1: number }>;
+  trained_at: number;
+}
+
 class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -147,8 +160,18 @@ export const api = {
   ) => post<{ job_id: string }>(`/api/datasets/${name}/generate`, body),
   dedup: (name: string) =>
     post<{ job_id: string }>(`/api/datasets/${name}/dedup`),
-  train: (name: string) =>
-    post<{ job_id: string }>(`/api/datasets/${name}/train`, {}),
+  crossval: (
+    name: string,
+    body: { model: string; folds: number; epochs: number; valid_only: boolean },
+  ) => post<{ job_id: string }>(`/api/datasets/${name}/crossval`, body),
+  train: (
+    name: string,
+    body: { model: string; epochs: number; valid_only: boolean },
+  ) => post<{ job_id: string }>(`/api/datasets/${name}/train`, body),
+  modelInfo: (name: string) =>
+    req<{ trained: boolean; report: ModelReport | null }>(
+      `/api/datasets/${name}/model`,
+    ),
 
   setSubjects: (name: string, subjects: string[]) =>
     post<{ subjects: string[] }>(`/api/datasets/${name}/subjects`, {

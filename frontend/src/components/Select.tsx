@@ -22,7 +22,19 @@ export function Select({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  // open upward when the trigger sits too close to the bottom of the viewport
+  const [dropUp, setDropUp] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  const toggleOpen = () => {
+    if (!open && ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      const below = window.innerHeight - r.bottom;
+      // 240px fits the menu's max height plus its margin
+      setDropUp(below < 240 && r.top > below);
+    }
+    setOpen((o) => !o);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -45,7 +57,7 @@ export function Select({
     <div ref={ref} className={`relative ${className}`}>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggleOpen}
         className="border-border bg-card hover:border-primary flex w-full items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-sm"
       >
         <span className={current ? "" : "text-muted"}>
@@ -56,7 +68,11 @@ export function Select({
         />
       </button>
       {open && (
-        <ul className="border-border bg-card absolute z-20 mt-1 max-h-56 min-w-full overflow-y-auto rounded-lg border py-1 shadow-lg">
+        <ul
+          className={`border-border bg-card absolute z-20 max-h-56 min-w-full overflow-y-auto rounded-lg border py-1 shadow-lg ${
+            dropUp ? "bottom-full mb-1" : "mt-1"
+          }`}
+        >
           {options.map((o) => (
             <li key={o.value}>
               <button
