@@ -439,6 +439,115 @@ def test_relabel_keeps_split_dir(dataset):
     assert (root / item.local_path).exists()
 
 
+def test_move_to_split_and_back(with_dataset, ws_root):
+    root = workspace.datasets_dir(ws_root) / "birds"
+    items = with_dataset.get("/api/datasets/birds").json()["items"]
+    ids = [items[0]["id"], items[1]["id"]]
+
+    r = with_dataset.post(
+        "/api/datasets/birds/move-to-split", json={"item_ids": ids, "split": "train"}
+    )
+    assert r.json() == {"moved": 2}
+    after = {i["id"]: i for i in with_dataset.get("/api/datasets/birds").json()["items"]}
+    for item_id in ids:
+        assert after[item_id]["split"] == "train"
+        assert (root / after[item_id]["local_path"]).exists()
+        assert after[item_id]["local_path"].replace("\\", "/").startswith("train/")
+
+    r = with_dataset.post(
+        "/api/datasets/birds/move-to-split", json={"item_ids": ids, "split": "none"}
+    )
+    assert r.json() == {"moved": 2}
+    after = {i["id"]: i for i in with_dataset.get("/api/datasets/birds").json()["items"]}
+    for item_id in ids:
+        assert after[item_id]["split"] is None
+        assert (root / after[item_id]["local_path"]).exists()
+
+
+def test_create_splits_moves_files_per_class(with_dataset, ws_root):
+    root = workspace.datasets_dir(ws_root) / "birds"
+
+    r = with_dataset.post(
+        "/api/datasets/birds/create-splits",
+        json={"test_percent": 34, "valid_percent": 0, "seed": 3},
+    )
+    counts = r.json()
+    assert counts["train"] + counts["test"] + counts["valid"] == 6
+    assert counts["test"] >= 2  # one per class at 34% of 3
+
+    items = with_dataset.get("/api/datasets/birds").json()["items"]
+    for cls in ("robin", "sparrow"):
+        splits = {i["split"] for i in items if i["label"] == cls}
+        assert {"train", "test"} <= splits
+    for i in items:
+        assert (root / i["local_path"]).exists()
+
+    # a valid share carves images out of train
+    r = with_dataset.post(
+        "/api/datasets/birds/create-splits",
+        json={"test_percent": 34, "valid_percent": 34, "seed": 3},
+    )
+    assert r.json()["valid"] >= 1
+
+    with_dataset.post("/api/datasets/birds/locks", json={"splits": True})
+    r = with_dataset.post("/api/datasets/birds/create-splits", json={})
+    assert r.status_code == 400
+    with_dataset.post("/api/datasets/birds/locks", json={"splits": False})
+
+
+def test_export_names_valid_folder_validation(with_dataset):
+    items = with_dataset.get("/api/datasets/birds").json()["items"]
+    with_dataset.post(
+        "/api/datasets/birds/move-to-split",
+        json={"item_ids": [items[0]["id"]], "split": "valid"},
+    )
+
+    r = with_dataset.get("/api/datasets/birds/export")
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        names = z.namelist()
+        manifest = json.loads(z.read(".sorty/manifest.json"))
+    assert any(n.startswith("validation/") for n in names)
+    assert not any(n.startswith("valid/") for n in names)
+    # the manifest inside the zip points at the renamed folder
+    exported = {i["item_id"]: i["local_path"] for i in manifest["items"]}
+    assert exported[items[0]["id"]].startswith("validation/")
+
+
+def test_locks_block_moves_and_reviews(with_dataset):
+    items = with_dataset.get("/api/datasets/birds").json()["items"]
+    item_id = items[0]["id"]
+
+    r = with_dataset.post(
+        "/api/datasets/birds/locks", json={"splits": True, "review": True}
+    )
+    assert r.json() == {"splits": True, "review": True}
+    assert with_dataset.get("/api/datasets/birds").json()["locks"] == {
+        "splits": True,
+        "review": True,
+    }
+
+    r = with_dataset.post(
+        "/api/datasets/birds/move-to-split",
+        json={"item_ids": [item_id], "split": "train"},
+    )
+    assert r.status_code == 400
+    r = with_dataset.post(
+        f"/api/datasets/birds/items/{item_id}/status", json={"status": "valid"}
+    )
+    assert r.status_code == 400
+    r = with_dataset.post(
+        "/api/datasets/birds/set-status",
+        json={"item_ids": [item_id], "status": "valid"},
+    )
+    assert r.status_code == 400
+
+    with_dataset.post("/api/datasets/birds/locks", json={"review": False})
+    r = with_dataset.post(
+        f"/api/datasets/birds/items/{item_id}/status", json={"status": "valid"}
+    )
+    assert r.status_code == 200
+
+
 def test_rename_dataset(with_dataset):
     r = with_dataset.patch("/api/datasets/birds", json={"name": "Waterfowl"})
     assert r.status_code == 200 and r.json()["name"] == "waterfowl"

@@ -15,6 +15,8 @@ export interface Item {
   filename: string;
   // the cross-validated model's class for this image, null until a model has run
   predicted: string | null;
+  // which split the image sits in ("train" | "test" | "valid"), null for flat class folders
+  split: string | null;
 }
 
 export interface DatasetSummary {
@@ -32,6 +34,7 @@ export interface DatasetDetail {
   subjects: string[];
   sources: string[];
   stats: { total: number; pending: number; valid: number; invalid: number };
+  locks: { splits: boolean; review: boolean };
   items: Item[];
 }
 

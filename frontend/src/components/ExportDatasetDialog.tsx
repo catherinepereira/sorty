@@ -55,7 +55,7 @@ export function ExportDatasetDialog({
         <Row label="Images" value={String(counts.total)} />
         <Row
           label="Reviewed"
-          value={`${counts.valid} valid, ${counts.pending} unreviewed`}
+          value={`${counts.valid} reviewed, ${counts.pending} unreviewed`}
         />
         <Row label="Classes" value={stats ? String(stats.subjects) : "…"} />
         <Row

@@ -128,7 +128,7 @@ function DatasetCard({
         <div className="p-4">
           <h2 className="font-semibold">{d.name}</h2>
           <p className="text-muted mt-1 text-sm">
-            {d.total} images, {d.pending} unreviewed, {d.valid} valid
+            {d.total} images, {d.pending} unreviewed, {d.valid} reviewed
           </p>
           <p className="text-muted text-xs">{d.subjects} classes</p>
         </div>

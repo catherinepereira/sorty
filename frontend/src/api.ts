@@ -176,6 +176,25 @@ export const api = {
       `/api/datasets/${name}/model`,
     ),
 
+  createSplits: (
+    name: string,
+    body: { test_percent: number; valid_percent: number; seed: number },
+  ) =>
+    post<{ train: number; test: number; valid: number }>(
+      `/api/datasets/${name}/create-splits`,
+      body,
+    ),
+  moveSplit: (name: string, ids: string[], split: string) =>
+    post<{ moved: number }>(`/api/datasets/${name}/move-to-split`, {
+      item_ids: ids,
+      split,
+    }),
+  setLocks: (name: string, locks: { splits?: boolean; review?: boolean }) =>
+    post<{ splits: boolean; review: boolean }>(
+      `/api/datasets/${name}/locks`,
+      locks,
+    ),
+
   setSubjects: (name: string, subjects: string[]) =>
     post<{ subjects: string[] }>(`/api/datasets/${name}/subjects`, {
       subjects,

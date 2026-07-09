@@ -10,6 +10,7 @@ import { AnnotateDialog } from "../components/AnnotateDialog";
 import { GenerateDialog } from "../components/GenerateDialog";
 import { TrainDialog } from "../components/TrainDialog";
 import { ExportDatasetDialog } from "../components/ExportDatasetDialog";
+import { CreateSplitsDialog } from "../components/CreateSplitsDialog";
 import { SummaryPanel } from "../components/SummaryPanel";
 import { DatasetToolsPanel } from "../components/DatasetToolsPanel";
 import { TrainingPanel } from "../components/TrainingPanel";
@@ -28,7 +29,8 @@ import { statusLabel } from "../status";
 import { prettyClass } from "../classname";
 import { clearActiveJob, getActiveJob, setActiveJob } from "../activeJobs";
 
-type DialogName = "generate" | "crossval" | "train" | "exportData" | null;
+type DialogName =
+  "generate" | "crossval" | "train" | "createSplits" | "exportData" | null;
 
 // banner colors: green for a completed sync, red for an error, amber for filter/info
 const BANNER_TONE = {
@@ -73,6 +75,7 @@ export function DatasetPage() {
     sources: new Set(),
     statuses: new Set(),
     classification: new Set(),
+    splits: new Set(),
   });
 
   const items = useMemo(() => detail?.items ?? [], [detail]);
@@ -99,6 +102,22 @@ export function DatasetPage() {
     [items],
   );
 
+  // split filter options and counts, hidden entirely while no item sits in a split
+  const splitCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const i of items) {
+      const key = i.split ?? "none";
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }, [items]);
+  const splitOptions = useMemo(() => {
+    const present = Object.keys(splitCounts);
+    if (!present.some((k) => k !== "none")) return [];
+    const order = ["train", "test", "valid", "none"];
+    return order.filter((k) => present.includes(k));
+  }, [splitCounts]);
+
   const visible = useMemo(() => {
     const flagged = flaggedIds ? new Set(flaggedIds) : null;
     const q = query.trim().toLowerCase();
@@ -119,6 +138,8 @@ export function DatasetPage() {
         const bucket = i.predicted === i.label ? "correct" : "mismatch";
         if (!filters.classification.has(bucket)) return false;
       }
+      if (filters.splits.size && !filters.splits.has(i.split ?? "none"))
+        return false;
       return true;
     });
     if (!flaggedIds) return filtered;
@@ -316,11 +337,55 @@ export function DatasetPage() {
     refresh();
   };
 
+  const moveSelectedToSplit = async (split: string) => {
+    const ids = [...selected];
+    if (!ids.length || !split) return;
+    try {
+      await api.moveSplit(name, ids, split);
+      clearSelection();
+      refresh();
+    } catch (e) {
+      notify(e instanceof ApiError ? e.message : "Could not move", "error");
+    }
+  };
+
   const markSelected = async (status: Status) => {
     const ids = [...selected];
     if (!ids.length) return;
-    await api.setStatusMany(name, ids, status);
-    clearSelection();
+    try {
+      await api.setStatusMany(name, ids, status);
+      clearSelection();
+      refresh();
+    } catch (e) {
+      notify(e instanceof ApiError ? e.message : "Could not mark", "error");
+    }
+  };
+
+  const runCreateSplits = async (body: {
+    test_percent: number;
+    valid_percent: number;
+    seed: number;
+  }) => {
+    setDialog(null);
+    try {
+      const counts = await api.createSplits(name, body);
+      const valid = counts.valid ? `, ${counts.valid} valid` : "";
+      notify(
+        `Splits created: ${counts.train} train, ${counts.test} test${valid}.`,
+        "success",
+      );
+      refresh();
+    } catch (e) {
+      notify(
+        e instanceof ApiError ? e.message : "Could not create splits",
+        "error",
+      );
+    }
+  };
+
+  const toggleLock = async (which: "splits" | "review") => {
+    const locks = detail?.locks ?? { splits: false, review: false };
+    await api.setLocks(name, { [which]: !locks[which] });
     refresh();
   };
 
@@ -368,22 +433,25 @@ export function DatasetPage() {
     <>
       <Header
         title={
-          editingName ? (
-            <input
-              autoFocus
-              className="border-primary w-64 border-b bg-transparent text-2xl font-bold outline-none"
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") rename(nameDraft);
-                if (e.key === "Escape") setEditingName(false);
-              }}
-              onBlur={() => rename(nameDraft)}
-              aria-label="Dataset name"
-            />
-          ) : (
-            name
-          )
+          <span className="flex items-baseline gap-2">
+            <span>Dataset:</span>
+            {editingName ? (
+              <input
+                autoFocus
+                className="border-primary w-64 border-b bg-transparent text-2xl font-bold outline-none"
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") rename(nameDraft);
+                  if (e.key === "Escape") setEditingName(false);
+                }}
+                onBlur={() => rename(nameDraft)}
+                aria-label="Dataset name"
+              />
+            ) : (
+              <span>{name}</span>
+            )}
+          </span>
         }
         titleAction={
           !editingName && (
@@ -400,7 +468,7 @@ export function DatasetPage() {
             </button>
           )
         }
-        subtitle={`${s.total} images, ${s.pending} unreviewed, ${s.valid} valid`}
+        subtitle={`${s.total} images, ${s.pending} unreviewed, ${s.valid} reviewed`}
         backTo="/"
         actions={
           <div className="flex items-center gap-2">
@@ -435,24 +503,27 @@ export function DatasetPage() {
       <Expandable title="Dataset Tools" defaultOpen>
         <DatasetToolsPanel
           busy={Boolean(job && running)}
+          locks={detail.locks}
           onGenerate={() => setDialog("generate")}
           onDuplicates={runDedup}
           onCrossval={() => setDialog("crossval")}
+          onCreateSplits={() => setDialog("createSplits")}
           onExportDataset={() => setDialog("exportData")}
+          onToggleLock={toggleLock}
         />
       </Expandable>
 
-      <div className="mb-4">
-        <Expandable title="Training Tools">
-          <TrainingPanel
-            busy={Boolean(job && running)}
-            report={modelReport}
-            runs={modelRuns}
-            onTrain={() => setDialog("train")}
-            exportUrl={`/api/datasets/${name}/model/export`}
-          />
-        </Expandable>
-      </div>
+      <Expandable title="Training Tools">
+        <TrainingPanel
+          busy={Boolean(job && running)}
+          report={modelReport}
+          runs={modelRuns}
+          onTrain={() => setDialog("train")}
+          exportUrl={`/api/datasets/${name}/model/export`}
+        />
+      </Expandable>
+
+      <hr className="border-border my-6" />
 
       {banner && (
         <div
@@ -519,16 +590,25 @@ export function DatasetPage() {
           >
             Clear
           </button>
-          <Select
-            className="ml-auto w-32"
-            value=""
-            placeholder="Mark as"
-            options={[
-              { value: "valid", label: statusLabel("valid") },
-              { value: "pending", label: statusLabel("pending") },
-            ]}
-            onChange={(v) => markSelected(v as Status)}
-          />
+          <div
+            className={`ml-auto ${detail.locks.review ? "pointer-events-none opacity-40" : ""}`}
+            title={
+              detail.locks.review
+                ? "Reviewing is locked for this dataset"
+                : undefined
+            }
+          >
+            <Select
+              className="w-32"
+              value=""
+              placeholder="Mark as"
+              options={[
+                { value: "valid", label: statusLabel("valid") },
+                { value: "pending", label: statusLabel("pending") },
+              ]}
+              onChange={(v) => markSelected(v as Status)}
+            />
+          </div>
           <Select
             className="w-40"
             value=""
@@ -539,6 +619,29 @@ export function DatasetPage() {
             }))}
             onChange={(v) => moveSelectedTo(v)}
           />
+          <div
+            className={
+              detail.locks.splits ? "pointer-events-none opacity-40" : ""
+            }
+            title={
+              detail.locks.splits
+                ? "Splits are locked for this dataset"
+                : undefined
+            }
+          >
+            <Select
+              className="w-36"
+              value=""
+              placeholder="Move to split"
+              options={[
+                { value: "train", label: "Train" },
+                { value: "test", label: "Test" },
+                { value: "valid", label: "Valid" },
+                { value: "none", label: "No split" },
+              ]}
+              onChange={(v) => moveSelectedToSplit(v)}
+            />
+          </div>
           <button
             className="bg-bad rounded-lg px-3 py-1.5 text-sm font-medium text-white"
             onClick={deleteSelected}
@@ -558,6 +661,8 @@ export function DatasetPage() {
             classes={detail.subjects}
             classCounts={classCounts}
             sources={sourceOptions}
+            splits={splitOptions}
+            splitCounts={splitCounts}
             hasPredictions={hasPredictions}
             filters={filters}
             setFilters={setFilters}
@@ -599,6 +704,7 @@ export function DatasetPage() {
         item={openItem}
         datasetName={name}
         classes={detail.subjects}
+        reviewLocked={detail.locks.review}
         onClose={() => setOpenItem(null)}
         onDelete={deleteOne}
         onDuplicate={duplicateOne}
@@ -631,6 +737,11 @@ export function DatasetPage() {
                 }),
           )
         }
+      />
+      <CreateSplitsDialog
+        open={dialog === "createSplits"}
+        onClose={() => setDialog(null)}
+        onStart={runCreateSplits}
       />
       <ExportDatasetDialog
         open={dialog === "exportData"}

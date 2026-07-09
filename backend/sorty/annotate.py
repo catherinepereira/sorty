@@ -31,6 +31,42 @@ def _split_prefix(local_path: str) -> Path:
     return Path()
 
 
+def item_split(local_path: str) -> str | None:
+    """The item's split, normalized so val/, valid/, and validation/ all read as "valid"."""
+    prefix = str(_split_prefix(local_path)).lower()
+    if not prefix or prefix == ".":
+        return None
+    return "valid" if prefix in {"val", "validation"} else prefix
+
+
+def move_items_to_split(
+    ds: Dataset, root: Path, item_ids: list[str], split: str | None
+) -> int:
+    """Move items into a <split>/<class>/ dir, or back to flat <class>/ for None.
+
+    Returns how many moved. Missing ids are skipped so a stale selection does not
+    abort the batch.
+    """
+    if split is not None and split not in {"train", "test", "valid"}:
+        raise ValueError(f"Unknown split {split!r}. Choose train, test, or valid.")
+    wanted = set(item_ids)
+    moved = 0
+    for item in ds.items:
+        if item.item_id not in wanted or item_split(item.local_path) == split:
+            continue
+        old_path = root / item.local_path
+        new_rel = (Path(split) if split else Path()) / item.label / old_path.name
+        new_path = root / new_rel
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+        if old_path.exists():
+            old_path.replace(new_path)
+        item.local_path = str(new_rel)
+        moved += 1
+    if moved:
+        ds.touch()
+    return moved
+
+
 def move_item_to_label(root: Path, item: DatasetItem, label: str) -> None:
     """Point an item at a class: move its file into <label>/ and rewrite label + local_path
 

@@ -47,6 +47,9 @@ class Dataset(BaseModel):
     subjects: list[str]
     sources: list[str]
     items: list[DatasetItem] = Field(default_factory=list)
+    # guard rails: refuse split moves / review-status changes while locked
+    lock_splits: bool = False
+    lock_review: bool = False
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
 

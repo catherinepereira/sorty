@@ -1,9 +1,9 @@
 import type { Status } from "./types";
 
-// "pending" is the stored value, the UI calls it "Unreviewed"
+// "pending" and "valid" are the stored values, the UI reads them as review states
 const LABELS: Record<Status, string> = {
   pending: "Unreviewed",
-  valid: "Valid",
+  valid: "Reviewed",
   invalid: "Invalid",
 };
 

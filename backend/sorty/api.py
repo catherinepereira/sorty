@@ -65,6 +65,7 @@ def _item_view(item: DatasetItem, root: Path) -> dict[str, Any]:
         "directory": str(local.parent),
         "filename": local.name,
         "predicted": item.predicted_label,
+        "split": annotate.item_split(item.local_path),
     }
 
 
@@ -114,6 +115,23 @@ class MoveToClassBody(BaseModel):
 
 class StatusBody(BaseModel):
     status: ReviewStatus
+
+
+class MoveToSplitBody(BaseModel):
+    item_ids: list[str]
+    # "train" | "test" | "valid" | "none" (back to flat class folders)
+    split: str
+
+
+class LocksBody(BaseModel):
+    splits: bool | None = None
+    review: bool | None = None
+
+
+class CreateSplitsBody(BaseModel):
+    test_percent: int = 20
+    valid_percent: int = 0
+    seed: int = 42
 
 
 class StatusManyBody(BaseModel):
@@ -259,6 +277,7 @@ def get_dataset(name: str) -> dict[str, Any]:
         # stats over live items only, so the count matches the grid and the files on disk
         # rather than including binned items that live under the recycle bin
         "stats": _live_stats(live),
+        "locks": {"splits": ds.lock_splits, "review": ds.lock_review},
         "items": [_item_view(i, root) for i in live],
     }
 
@@ -371,6 +390,65 @@ def set_label(name: str, item_id: str, body: LabelBody) -> dict[str, Any]:
     return {"item": _item_view(annotate.find_item(ds, item_id), root)}
 
 
+@app.post("/api/datasets/{name}/move-to-split")
+def move_to_split(name: str, body: MoveToSplitBody) -> dict[str, int]:
+    ds, root = _load(name)
+    if ds.lock_splits:
+        raise HTTPException(status_code=400, detail="Splits are locked for this dataset.")
+    split = None if body.split == "none" else body.split
+    try:
+        moved = annotate.move_items_to_split(ds, root, body.item_ids, split)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    save_dataset(ds, root)
+    return {"moved": moved}
+
+
+@app.post("/api/datasets/{name}/create-splits")
+def create_splits(name: str, body: CreateSplitsBody) -> dict[str, int]:
+    """Organize the dataset into train/test(/valid) split folders with a seeded assignment.
+
+    Every live image is assigned per class and its file moves into <set>/<class>/.
+    Images already in a set are reassigned along with the rest, so re-running with a
+    new seed or percentages reshuffles the whole dataset.
+    """
+    ds, root = _load(name)
+    if ds.lock_splits:
+        raise HTTPException(status_code=400, detail="Splits are locked for this dataset.")
+    if not 1 <= body.test_percent <= 90:
+        raise HTTPException(
+            status_code=400, detail="Test share must be between 1 and 90 percent."
+        )
+    if not 0 <= body.valid_percent <= 50 or body.test_percent + body.valid_percent > 90:
+        raise HTTPException(
+            status_code=400,
+            detail="Valid share must be 0 to 50 percent, and leave room for train.",
+        )
+
+    live = [i for i in ds.items if not is_binned(i) and (root / i.local_path).exists()]
+    assigned = _assign_split_ids(live, body.test_percent, body.valid_percent, body.seed)
+    counts = {"train": 0, "test": 0, "valid": 0}
+    for split in counts:
+        ids = [item_id for item_id, s in assigned.items() if s == split]
+        annotate.move_items_to_split(ds, root, ids, split)
+        counts[split] = len(ids)
+    save_dataset(ds, root)
+    return counts
+
+
+@app.post("/api/datasets/{name}/locks")
+def set_locks(name: str, body: LocksBody) -> dict[str, bool]:
+    """Toggle the split-move and review locks. Omitted fields keep their state."""
+    ds, root = _load(name)
+    if body.splits is not None:
+        ds.lock_splits = body.splits
+    if body.review is not None:
+        ds.lock_review = body.review
+    ds.touch()
+    save_dataset(ds, root)
+    return {"splits": ds.lock_splits, "review": ds.lock_review}
+
+
 @app.post("/api/datasets/{name}/move-to-class")
 def move_to_class(name: str, body: MoveToClassBody) -> dict[str, int]:
     ds, root = _load(name)
@@ -385,6 +463,10 @@ def move_to_class(name: str, body: MoveToClassBody) -> dict[str, int]:
 @app.post("/api/datasets/{name}/items/{item_id}/status")
 def set_status(name: str, item_id: str, body: StatusBody) -> dict[str, Any]:
     ds, root = _load(name)
+    if ds.lock_review:
+        raise HTTPException(
+            status_code=400, detail="Reviewing is locked for this dataset."
+        )
     try:
         annotate.set_status(ds, item_id, body.status)
     except KeyError:
@@ -429,6 +511,10 @@ def crop_item(name: str, item_id: str, body: CropBody) -> dict[str, Any]:
 @app.post("/api/datasets/{name}/set-status")
 def set_status_many(name: str, body: StatusManyBody) -> dict[str, int]:
     ds, root = _load(name)
+    if ds.lock_review:
+        raise HTTPException(
+            status_code=400, detail="Reviewing is locked for this dataset."
+        )
     changed = annotate.set_status_many(ds, body.item_ids, body.status)
     save_dataset(ds, root)
     return {"changed": changed}
@@ -636,29 +722,50 @@ def export_model(name: str) -> Response:
     )
 
 
-def _assign_test_ids(items: list[DatasetItem], test_percent: int, seed: int) -> set[str]:
-    """Item ids that land in test/, split per class so every class covers both sides.
+def _assign_split_ids(
+    items: list[DatasetItem], test_percent: int, valid_percent: int, seed: int
+) -> dict[str, str]:
+    """Assign every item a split ("train" | "test" | "valid"), per class.
 
     Items are sorted before the seeded shuffle, so the same seed always produces the
-    same split. A class with at least two images keeps at least one on each side no
-    matter the percentage. A single-image class stays in train.
+    same split. A class with at least two images keeps at least one in train and one
+    in test no matter the percentages, valid only gets what's left after that. A
+    single-image class stays in train.
     """
     by_label: dict[str, list[DatasetItem]] = defaultdict(list)
     for item in items:
         by_label[item.label].append(item)
 
     rng = random.Random(seed)
-    test_ids: set[str] = set()
+    assigned: dict[str, str] = {}
     for label in sorted(by_label):
         group = sorted(by_label[label], key=lambda i: i.item_id)
         rng.shuffle(group)
-        n_test = round(len(group) * test_percent / 100)
-        if len(group) >= 2:
-            n_test = min(max(n_test, 1), len(group) - 1)
-        else:
-            n_test = 0
-        test_ids.update(i.item_id for i in group[:n_test])
-    return test_ids
+        n = len(group)
+        n_test = round(n * test_percent / 100)
+        n_test = min(max(n_test, 1), n - 1) if n >= 2 else 0
+        n_valid = min(round(n * valid_percent / 100), n - n_test - 1)
+        n_valid = max(n_valid, 0)
+        for pos, item in enumerate(group):
+            if pos < n_test:
+                assigned[item.item_id] = "test"
+            elif pos < n_test + n_valid:
+                assigned[item.item_id] = "valid"
+            else:
+                assigned[item.item_id] = "train"
+    return assigned
+
+
+def _export_arcname(local_path: str) -> str:
+    """The path an item takes inside the export zip.
+
+    A valid/ or val/ split dir downloads as validation/, the conventional name for
+    a shared dataset.
+    """
+    parts = local_path.replace("\\", "/").split("/")
+    if len(parts) >= 3 and parts[0].lower() in {"val", "valid"}:
+        parts[0] = "validation"
+    return "/".join(parts)
 
 
 @app.get("/api/datasets/{name}/export")
@@ -667,11 +774,11 @@ def export_dataset(
 ) -> FileResponse:
     """The dataset as a zip, flat class folders or a seeded train/test split.
 
-    Flat exports keep each item's path and include the manifest. With test_percent set,
-    images land in train/<class>/ and test/<class>/ instead, and the manifest is left
-    out since its paths describe the flat layout. Built as a temp file rather than in
-    memory, a dataset can run to hundreds of MB. Images are stored uncompressed since
-    they already are.
+    Flat exports keep each item's path (valid/ downloading as validation/) and include
+    a manifest rewritten to match. With test_percent set, images land in train/<class>/
+    and test/<class>/ instead, and the manifest is left out since its paths describe
+    the flat layout. Built as a temp file rather than in memory, a dataset can run to
+    hundreds of MB. Images are stored uncompressed since they already are.
     """
     root = _root(name)
     if test_percent is not None and not 1 <= test_percent <= 90:
@@ -682,9 +789,10 @@ def export_dataset(
     live = [
         i for i in ds.items if not is_binned(i) and (root / i.local_path).exists()
     ]
-    test_ids = (
-        _assign_test_ids(live, test_percent, seed) if test_percent is not None else None
-    )
+    test_ids = None
+    if test_percent is not None:
+        assigned = _assign_split_ids(live, test_percent, 0, seed)
+        test_ids = {i for i, split in assigned.items() if split == "test"}
 
     fd, tmp = tempfile.mkstemp(suffix=".zip")
     os.close(fd)
@@ -692,15 +800,20 @@ def export_dataset(
         for item in live:
             path = root / item.local_path
             if test_ids is None:
-                arcname = item.local_path.replace("\\", "/")
+                arcname = _export_arcname(item.local_path)
             else:
                 split = "test" if item.item_id in test_ids else "train"
                 arcname = f"{split}/{item.label}/{Path(item.local_path).name}"
             z.write(path, arcname)
-        if test_ids is None:
-            mp = manifest_path(root)
-            if mp.exists():
-                z.write(mp, f"{MANIFEST_DIR}/{mp.name}")
+        if test_ids is None and manifest_path(root).exists():
+            # rewrite manifest paths to the zip layout so a re-import lines up
+            export_ds = ds.model_copy(deep=True)
+            for item in export_ds.items:
+                if not is_binned(item):
+                    item.local_path = _export_arcname(item.local_path)
+            z.writestr(
+                f"{MANIFEST_DIR}/manifest.json", export_ds.model_dump_json(indent=2)
+            )
     return FileResponse(
         tmp,
         media_type="application/zip",

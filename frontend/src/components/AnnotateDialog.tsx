@@ -22,7 +22,7 @@ type CropRect = { x: number; y: number; w: number; h: number };
 
 const STATUSES: Status[] = ["pending", "valid"];
 
-// active-state colors per status, so Valid reads green like the chip and grid badges do
+// active-state colors per status, so Reviewed reads green like the chip and grid badges do
 const ACTIVE_STATUS: Record<Status, string> = {
   valid: "bg-good text-white",
   pending: "bg-primary text-white",
@@ -33,6 +33,7 @@ export function AnnotateDialog({
   item,
   datasetName,
   classes,
+  reviewLocked = false,
   onClose,
   onDelete,
   onDuplicate,
@@ -42,6 +43,8 @@ export function AnnotateDialog({
   item: Item | null;
   datasetName: string;
   classes: string[];
+  // the dataset's review lock, disables the status buttons and hotkeys
+  reviewLocked?: boolean;
   onClose: () => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
@@ -135,7 +138,11 @@ export function AnnotateDialog({
     applied((await api.setStatus(datasetName, current.id, status)).item);
   };
 
-  keyActions.current = { prev: onPrev, next: onNext, mark: setStatus };
+  keyActions.current = {
+    prev: onPrev,
+    next: onNext,
+    mark: reviewLocked ? undefined : setStatus,
+  };
 
   const clampPoint = (e: React.PointerEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -397,11 +404,17 @@ export function AnnotateDialog({
                 <button
                   key={s}
                   onClick={() => setStatus(s)}
+                  disabled={reviewLocked}
+                  title={
+                    reviewLocked
+                      ? "Reviewing is locked for this dataset"
+                      : undefined
+                  }
                   className={`rounded-lg px-3 py-1.5 text-sm ${
                     current.status === s
                       ? ACTIVE_STATUS[s]
                       : "border-border text-muted hover:bg-bg border"
-                  }`}
+                  } ${reviewLocked ? "cursor-not-allowed opacity-40" : ""}`}
                 >
                   {statusLabel(s)}
                 </button>

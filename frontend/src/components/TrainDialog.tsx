@@ -38,7 +38,7 @@ const COPY = {
 
 /**
  * Configure a training run: backbone, epochs, folds (cross-validation only), and
- * whether to use every image or only the reviewed-valid ones. The per-class list shows
+ * whether to use every image or only the reviewed ones. The per-class list shows
  * what each class contributes under the chosen scope, since a class with few images
  * trains poorly.
  */
@@ -133,7 +133,7 @@ export function TrainDialog({
               value={scope}
               options={[
                 { value: "all", label: "All images" },
-                { value: "valid", label: "Valid only" },
+                { value: "valid", label: "Reviewed only" },
               ]}
               onChange={(v) => setScope(v as "all" | "valid")}
             />
@@ -145,7 +145,7 @@ export function TrainDialog({
                 <li key={label} className="flex justify-between gap-4">
                   <span>{prettyClass(label)}</span>
                   <span className={n < LOW_COUNT ? "text-bad" : ""}>
-                    {n} {validOnly ? "valid" : "images"}
+                    {n} {validOnly ? "reviewed" : "images"}
                   </span>
                 </li>
               ))}
@@ -153,15 +153,15 @@ export function TrainDialog({
             {empty.length > 0 && (
               <p className="text-bad mt-2 text-sm">
                 {empty.length === 1
-                  ? `${prettyClass(empty[0][0])} has no ${validOnly ? "valid " : ""}images and would be left out of training.`
-                  : `${empty.length} classes have no ${validOnly ? "valid " : ""}images and would be left out of training.`}
+                  ? `${prettyClass(empty[0][0])} has no ${validOnly ? "reviewed " : ""}images and would be left out of training.`
+                  : `${empty.length} classes have no ${validOnly ? "reviewed " : ""}images and would be left out of training.`}
               </p>
             )}
             {low.length > 0 && (
               <p className="text-warn mt-2 text-sm">
                 {low.length === 1
-                  ? `${prettyClass(low[0][0])} has fewer than ${LOW_COUNT} ${validOnly ? "valid " : ""}images, which trains poorly.`
-                  : `${low.length} classes have fewer than ${LOW_COUNT} ${validOnly ? "valid " : ""}images, which trains poorly.`}
+                  ? `${prettyClass(low[0][0])} has fewer than ${LOW_COUNT} ${validOnly ? "reviewed " : ""}images, which trains poorly.`
+                  : `${low.length} classes have fewer than ${LOW_COUNT} ${validOnly ? "reviewed " : ""}images, which trains poorly.`}
               </p>
             )}
           </div>

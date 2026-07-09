@@ -69,7 +69,9 @@ export function TrainingPanel({
                 />
                 <Row
                   label="Scope"
-                  value={report.valid_only ? "Valid images only" : "All images"}
+                  value={
+                    report.valid_only ? "Reviewed images only" : "All images"
+                  }
                 />
                 <Row label="Epochs" value={String(report.epochs)} />
                 <Row label="Learning rate" value={report.lr.toExponential(2)} />
@@ -241,7 +243,9 @@ function RunsTable({ runs }: { runs: ModelReport[] }) {
             <td className="py-1">{MODEL_NAMES[r.model] ?? r.model}</td>
             <td className="py-1 text-right">{r.n_train + r.n_val}</td>
             <td className="py-1 text-right">{r.epochs}</td>
-            <td className="py-1 pl-6">{r.valid_only ? "Valid only" : "All"}</td>
+            <td className="py-1 pl-6">
+              {r.valid_only ? "Reviewed only" : "All"}
+            </td>
             <td
               className={`py-1 text-right ${
                 r.overall_accuracy === best ? "text-good font-medium" : ""

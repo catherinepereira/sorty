@@ -8,9 +8,18 @@ export interface Filters {
   sources: Set<string>;
   statuses: Set<string>;
   classification: Set<string>;
+  splits: Set<string>;
 }
 
 const STATUS_OPTIONS = ["pending", "valid"];
+
+// "none" stands in for items outside any train/test/valid dir
+const SPLIT_LABELS: Record<string, string> = {
+  train: "Train",
+  test: "Test",
+  valid: "Valid",
+  none: "No split",
+};
 
 const CLASSIFICATION_OPTIONS = ["correct", "mismatch"];
 const CLASSIFICATION_LABELS: Record<string, string> = {
@@ -93,6 +102,8 @@ export function FilterSidebar({
   classes,
   classCounts,
   sources,
+  splits,
+  splitCounts,
   filters,
   setFilters,
   shown,
@@ -102,6 +113,9 @@ export function FilterSidebar({
   classes: string[];
   classCounts: Record<string, number>;
   sources: string[];
+  // split keys present on items ("train" | "test" | "valid" | "none"), empty when flat
+  splits: string[];
+  splitCounts: Record<string, number>;
   filters: Filters;
   setFilters: (f: Filters) => void;
   shown: number;
@@ -119,7 +133,8 @@ export function FilterSidebar({
     filters.classes.size > 0 ||
     filters.sources.size > 0 ||
     filters.statuses.size > 0 ||
-    filters.classification.size > 0;
+    filters.classification.size > 0 ||
+    filters.splits.size > 0;
 
   const clearAll = () =>
     setFilters({
@@ -127,6 +142,7 @@ export function FilterSidebar({
       sources: new Set(),
       statuses: new Set(),
       classification: new Set(),
+      splits: new Set(),
     });
 
   return (
@@ -168,6 +184,18 @@ export function FilterSidebar({
             counts={classCounts}
           />
         </Section>
+
+        {splits.length > 0 && (
+          <Section title="Split" count={filters.splits.size}>
+            <CheckList
+              options={splits}
+              chosen={filters.splits}
+              onToggle={(v) => toggle("splits", v)}
+              renderLabel={(v) => SPLIT_LABELS[v] ?? v}
+              counts={splitCounts}
+            />
+          </Section>
+        )}
 
         <Section title="Sources" count={filters.sources.size}>
           <CheckList

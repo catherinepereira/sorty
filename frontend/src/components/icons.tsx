@@ -76,6 +76,36 @@ export function ArchiveIcon(p: IconProps) {
   );
 }
 
+export function ForkIcon(p: IconProps) {
+  // one path splitting in two, for creating train/test sets
+  return (
+    <Svg {...p}>
+      <path d="M3 12h6" />
+      <path d="M9 12c4 0 4-5 8-5h4" />
+      <path d="M9 12c4 0 4 5 8 5h4" />
+    </Svg>
+  );
+}
+
+export function LockIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </Svg>
+  );
+}
+
+export function UnlockIcon(p: IconProps) {
+  // open shackle
+  return (
+    <Svg {...p}>
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 7.9-.9" />
+    </Svg>
+  );
+}
+
 export function DownloadIcon(p: IconProps) {
   return (
     <Svg {...p}>
