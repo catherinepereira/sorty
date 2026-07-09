@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import os
-
 import uvicorn
 
+from sorty.api import app
 from sorty.config import BACKEND_PORT
 
 if __name__ == "__main__":
-    # watchfiles' native change notifications never fire on this setup, so the reloader
-    # silently serves stale code. Polling detects edits reliably
-    os.environ.setdefault("WATCHFILES_FORCE_POLLING", "true")
-    uvicorn.run("sorty.api:app", host="127.0.0.1", port=BACKEND_PORT, reload=True)
+    # no reload: on this setup uvicorn's reloader spawns its worker with the anaconda
+    # interpreter instead of the venv, which serves a stale sorty and never sees edits.
+    # Serving the app in-process uses the right interpreter, restart after backend edits
+    uvicorn.run(app, host="127.0.0.1", port=BACKEND_PORT)

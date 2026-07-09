@@ -31,7 +31,7 @@ const COPY = {
   train: {
     title: "Train model",
     blurb:
-      "Trains one model on the chosen images and saves it, ready to export from the Tools panel.",
+      "Trains one model on the chosen images and saves it. Its report and export land in Training Tools.",
     action: "Train",
   },
 };

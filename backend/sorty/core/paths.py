@@ -10,6 +10,10 @@ from pathlib import Path
 
 MANIFEST_DIR = ".sorty"
 
+# top-level dirs treated as train/test splits rather than classes, so a dataset in the
+# traditional <root>/<split>/<class>/ layout keeps its class names
+SPLIT_DIRS = {"train", "test", "val", "valid"}
+
 
 def meta_dir(dataset_root: Path) -> Path:
     d = dataset_root / MANIFEST_DIR

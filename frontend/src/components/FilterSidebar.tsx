@@ -177,7 +177,7 @@ export function FilterSidebar({
           />
         </Section>
 
-        <Section title="Classification" count={filters.classification.size}>
+        <Section title="Cross-validation" count={filters.classification.size}>
           <CheckList
             options={CLASSIFICATION_OPTIONS}
             chosen={filters.classification}
@@ -187,7 +187,7 @@ export function FilterSidebar({
           />
           {!hasPredictions && (
             <p className="text-muted mt-1 text-xs">
-              Train a model to show classifications.
+              Run Cross validate to show predictions.
             </p>
           )}
         </Section>

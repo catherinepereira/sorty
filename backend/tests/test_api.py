@@ -284,6 +284,8 @@ def test_train_runs_full_training_and_export(with_dataset, tmp_path):
     info = with_dataset.get("/api/datasets/birds/model").json()
     assert info["trained"] is True
     assert info["report"]["epochs"] == 3
+    assert len(info["runs"]) == 1
+    assert info["runs"][0]["valid_only"] is False
 
     export = with_dataset.get("/api/datasets/birds/model/export")
     assert export.status_code == 200
@@ -379,6 +381,62 @@ def test_refresh_adds_orphan_and_prunes_missing(with_dataset, ws_root):
     added = next(i for i in items if i["filename"] == "manual_add.png")
     assert added["source"] == "unknown"
     assert victim["id"] not in {i["id"] for i in items}
+
+
+def test_refresh_ingests_train_test_layout(with_dataset, ws_root):
+    from PIL import Image
+
+    root = workspace.datasets_dir(ws_root) / "birds"
+    for split in ("train", "test"):
+        for cls in ("finch", "wren"):
+            (root / split / cls).mkdir(parents=True)
+            Image.new("RGB", (8, 8)).save(root / split / cls / f"{split}_{cls}.png")
+
+    r = with_dataset.post("/api/datasets/birds/refresh").json()
+    assert r["added"] == 4
+
+    items = with_dataset.get("/api/datasets/birds").json()["items"]
+    labels = {i["label"] for i in items}
+    # the split dirs are layout, not classes
+    assert "train" not in labels and "test" not in labels
+    assert {"finch", "wren"} <= labels
+    assert sum(1 for i in items if i["label"] == "finch") == 2
+
+
+def test_export_split_is_seeded_and_covers_classes(with_dataset):
+    def names(seed):
+        r = with_dataset.get(
+            f"/api/datasets/birds/export?test_percent=20&seed={seed}"
+        )
+        assert r.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+            return set(z.namelist())
+
+    first = names(1)
+    assert first == names(1)
+    assert all(n.startswith(("train/", "test/")) for n in first)
+    # every class has images on both sides
+    for cls in ("robin", "sparrow"):
+        assert any(n.startswith(f"train/{cls}/") for n in first)
+        assert any(n.startswith(f"test/{cls}/") for n in first)
+    # no manifest in a split export, its paths describe the flat layout
+    assert not any(n.endswith("manifest.json") for n in first)
+
+
+def test_relabel_keeps_split_dir(dataset):
+    from sorty import annotate
+
+    ds, root = dataset
+    item = ds.items[0]
+    old = root / item.local_path
+    new_rel = Path("train") / item.label / old.name
+    (root / "train" / item.label).mkdir(parents=True)
+    old.replace(root / new_rel)
+    item.local_path = str(new_rel)
+
+    annotate.set_label(ds, root, item.item_id, "finch")
+    assert item.local_path.replace("\\", "/").startswith("train/finch/")
+    assert (root / item.local_path).exists()
 
 
 def test_rename_dataset(with_dataset):

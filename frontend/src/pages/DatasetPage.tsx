@@ -9,10 +9,10 @@ import { ImageCard } from "../components/ImageCard";
 import { AnnotateDialog } from "../components/AnnotateDialog";
 import { GenerateDialog } from "../components/GenerateDialog";
 import { TrainDialog } from "../components/TrainDialog";
-import { ModelExportDialog } from "../components/ModelExportDialog";
 import { ExportDatasetDialog } from "../components/ExportDatasetDialog";
 import { SummaryPanel } from "../components/SummaryPanel";
-import { MLToolsPanel } from "../components/MLToolsPanel";
+import { DatasetToolsPanel } from "../components/DatasetToolsPanel";
+import { TrainingPanel } from "../components/TrainingPanel";
 import { Expandable } from "../components/Expandable";
 import { JobProgress } from "../components/JobProgress";
 import { FilterSidebar, type Filters } from "../components/FilterSidebar";
@@ -28,8 +28,7 @@ import { statusLabel } from "../status";
 import { prettyClass } from "../classname";
 import { clearActiveJob, getActiveJob, setActiveJob } from "../activeJobs";
 
-type DialogName =
-  "generate" | "crossval" | "train" | "export" | "exportData" | null;
+type DialogName = "generate" | "crossval" | "train" | "exportData" | null;
 
 // banner colors: green for a completed sync, red for an error, amber for filter/info
 const BANNER_TONE = {
@@ -131,12 +130,16 @@ export function DatasetPage() {
     );
   }, [items, filters, flaggedIds, query]);
 
-  // the saved model's training report, which shows the export tile in the Tools panel
+  // the saved model's training report and run history, shown in Training Tools
   const [modelReport, setModelReport] = useState<ModelReport | null>(null);
+  const [modelRuns, setModelRuns] = useState<ModelReport[]>([]);
   const loadModelInfo = useCallback(() => {
     api
       .modelInfo(name)
-      .then((info) => setModelReport(info.trained ? info.report : null))
+      .then((info) => {
+        setModelReport(info.trained ? info.report : null);
+        setModelRuns(info.runs);
+      })
       .catch(() => {});
   }, [name]);
 
@@ -174,13 +177,13 @@ export function DatasetPage() {
     } | null;
     if (result && result.mismatched !== undefined) {
       notify(
-        `Model classified ${result.predicted} images, ${result.mismatched} disagree with their label. Filter by classification to review them.`,
+        `Cross-validation predicted ${result.predicted} images, ${result.mismatched} disagree with their label. Filter by cross-validation to review them.`,
         "success",
       );
     } else if (result && result.overall_accuracy !== undefined) {
       loadModelInfo();
       notify(
-        `Model trained, ${Math.round(result.overall_accuracy * 100)}% validation accuracy. Export it from the Tools panel.`,
+        `Model trained, ${Math.round(result.overall_accuracy * 100)}% validation accuracy. The full report is in Training Tools.`,
         "success",
       );
     }
@@ -429,16 +432,24 @@ export function DatasetPage() {
         />
       </Expandable>
 
+      <Expandable title="Dataset Tools" defaultOpen>
+        <DatasetToolsPanel
+          busy={Boolean(job && running)}
+          onGenerate={() => setDialog("generate")}
+          onDuplicates={runDedup}
+          onCrossval={() => setDialog("crossval")}
+          onExportDataset={() => setDialog("exportData")}
+        />
+      </Expandable>
+
       <div className="mb-4">
-        <Expandable title="Tools" defaultOpen>
-          <MLToolsPanel
+        <Expandable title="Training Tools">
+          <TrainingPanel
             busy={Boolean(job && running)}
-            onGenerate={() => setDialog("generate")}
-            onDuplicates={runDedup}
-            onCrossval={() => setDialog("crossval")}
+            report={modelReport}
+            runs={modelRuns}
             onTrain={() => setDialog("train")}
-            onExport={modelReport ? () => setDialog("export") : undefined}
-            onExportDataset={() => setDialog("exportData")}
+            exportUrl={`/api/datasets/${name}/model/export`}
           />
         </Expandable>
       </div>
@@ -625,12 +636,6 @@ export function DatasetPage() {
         open={dialog === "exportData"}
         datasetName={name}
         counts={s}
-        onClose={() => setDialog(null)}
-      />
-      <ModelExportDialog
-        open={dialog === "export"}
-        report={modelReport}
-        exportUrl={`/api/datasets/${name}/model/export`}
         onClose={() => setDialog(null)}
       />
       {confirmEl}

@@ -13,6 +13,7 @@ from pathlib import Path
 from PIL import Image, ImageOps
 
 from sorty.core import Dataset, DatasetItem, ReviewStatus, slugify
+from sorty.core.paths import SPLIT_DIRS
 
 
 def find_item(ds: Dataset, item_id: str) -> DatasetItem:
@@ -22,14 +23,23 @@ def find_item(ds: Dataset, item_id: str) -> DatasetItem:
     raise KeyError(item_id)
 
 
+def _split_prefix(local_path: str) -> Path:
+    """The item's train/test dir when it sits in a <split>/<class>/ layout, else empty."""
+    parts = Path(local_path).parts
+    if len(parts) >= 3 and parts[0].lower() in SPLIT_DIRS:
+        return Path(parts[0])
+    return Path()
+
+
 def move_item_to_label(root: Path, item: DatasetItem, label: str) -> None:
     """Point an item at a class: move its file into <label>/ and rewrite label + local_path
 
     The file move and the manifest rewrite happen together so the two never drift. A
     missing source file still gets its label and path rewritten, refresh reconciles later.
+    An item under a train/ or test/ dir stays in that split.
     """
     old_path = root / item.local_path
-    new_rel = Path(label) / f"{label}_{item.item_id}{old_path.suffix}"
+    new_rel = _split_prefix(item.local_path) / label / f"{label}_{item.item_id}{old_path.suffix}"
     new_path = root / new_rel
     new_path.parent.mkdir(parents=True, exist_ok=True)
     if old_path.exists():
@@ -55,7 +65,11 @@ def duplicate_item(ds: Dataset, root: Path, item_id: str) -> DatasetItem:
     while (new_id := DatasetItem.make_id(f"{source.item_id}:copy{n}")) in existing:
         n += 1
 
-    new_rel = Path(source.label) / f"{source.label}_{new_id}{src_path.suffix}"
+    new_rel = (
+        _split_prefix(source.local_path)
+        / source.label
+        / f"{source.label}_{new_id}{src_path.suffix}"
+    )
     shutil.copy2(src_path, root / new_rel)
     copy = source.model_copy(
         update={"item_id": new_id, "local_path": str(new_rel), "deleted_at": None}

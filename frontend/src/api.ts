@@ -18,6 +18,9 @@ export interface ModelReport {
   overall_accuracy: number;
   per_class: Record<string, { precision: number; recall: number; f1: number }>;
   trained_at: number;
+  // absent on reports from before these fields existed
+  confusion?: { labels: string[]; matrix: number[][] };
+  valid_only?: boolean;
 }
 
 class ApiError extends Error {
@@ -169,7 +172,7 @@ export const api = {
     body: { model: string; epochs: number; valid_only: boolean },
   ) => post<{ job_id: string }>(`/api/datasets/${name}/train`, body),
   modelInfo: (name: string) =>
-    req<{ trained: boolean; report: ModelReport | null }>(
+    req<{ trained: boolean; report: ModelReport | null; runs: ModelReport[] }>(
       `/api/datasets/${name}/model`,
     ),
 

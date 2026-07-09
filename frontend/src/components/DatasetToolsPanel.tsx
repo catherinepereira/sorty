@@ -1,24 +1,16 @@
-import {
-  ArchiveIcon,
-  BrainIcon,
-  DownloadIcon,
-  LayersIcon,
-  MirrorIcon,
-  SparklesIcon,
-} from "./icons";
+import { ArchiveIcon, LayersIcon, MirrorIcon, SparklesIcon } from "./icons";
 
 /**
- * The dataset's ML actions as a grid of labeled icon buttons. Each callback kicks off a
- * background job the page tracks. While one runs, the job-starting tiles gray out so
- * jobs can't stack, the export tiles stay usable.
+ * Dataset-level actions as a grid of labeled icon buttons. Cross validate sits here
+ * rather than in Training Tools because its predictions feed the grid's classification
+ * filter for label cleanup. Job-starting tiles gray out while one runs, export only
+ * downloads and stays usable.
  */
-export function MLToolsPanel({
+export function DatasetToolsPanel({
   busy,
   onGenerate,
   onDuplicates,
   onCrossval,
-  onTrain,
-  onExport,
   onExportDataset,
 }: {
   // a job is running, disable the tiles that would start another
@@ -26,9 +18,6 @@ export function MLToolsPanel({
   onGenerate: () => void;
   onDuplicates: () => void;
   onCrossval: () => void;
-  onTrain: () => void;
-  // absent until a saved model exists
-  onExport?: () => void;
   onExportDataset: () => void;
 }) {
   return (
@@ -52,28 +41,15 @@ export function MLToolsPanel({
         disabled={busy}
       />
       <ToolButton
-        label="Train model"
-        icon={<BrainIcon className="h-5 w-5" />}
-        onClick={onTrain}
-        disabled={busy}
-      />
-      <ToolButton
         label="Export dataset"
         icon={<ArchiveIcon className="h-5 w-5" />}
         onClick={onExportDataset}
       />
-      {onExport && (
-        <ToolButton
-          label="Export model"
-          icon={<DownloadIcon className="h-5 w-5" />}
-          onClick={onExport}
-        />
-      )}
     </div>
   );
 }
 
-function ToolButton({
+export function ToolButton({
   label,
   icon,
   onClick,

@@ -449,7 +449,7 @@ function ItemDetail({ item, dims }: { item: Item; dims: FileDetails | null }) {
       )}
       {item.predicted && (
         <div className="flex justify-between gap-2 pt-3">
-          <dt className="text-muted">Model classification</dt>
+          <dt className="text-muted">Cross-validation prediction</dt>
           <dd
             className={item.predicted === item.label ? "text-good" : "text-bad"}
           >

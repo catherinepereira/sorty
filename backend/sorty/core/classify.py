@@ -228,6 +228,14 @@ def train(
     return report
 
 
+def confusion_matrix(preds: list[int], targets: list[int], n: int) -> list[list[int]]:
+    """Counts indexed [true][predicted]."""
+    matrix = [[0] * n for _ in range(n)]
+    for pred, target in zip(preds, targets):
+        matrix[target][pred] += 1
+    return matrix
+
+
 def _report_and_save(net, model_name, epochs, lr, val_split, n_train, n_val,
                      val_samples, all_preds, all_targets, idx_to_class, dataset_root):
     import torch
@@ -252,16 +260,20 @@ def _report_and_save(net, model_name, epochs, lr, val_split, n_train, n_val,
         class_report[cls] = {"precision": round(precision, 3), "recall": round(recall, 3), "f1": round(f1, 3)}
 
     overall = sum(p == t for p, t in zip(all_preds, all_targets)) / len(all_targets)
+    num_classes = len(idx_to_class)
     report = {
         "model": model_name, "epochs": epochs, "lr": lr, "val_split": val_split,
         "n_train": n_train, "n_val": n_val, "overall_accuracy": round(overall, 4),
         "per_class": class_report, "trained_at": time.time(),
+        "confusion": {
+            "labels": [idx_to_class[i] for i in range(num_classes)],
+            "matrix": confusion_matrix(all_preds, all_targets, num_classes),
+        },
     }
 
     md = meta_dir(dataset_root)
     net.eval()
     torch.jit.script(net).save(str(md / "model.pt"))
-    num_classes = len(idx_to_class)
     (md / "labels.json").write_text(
         json.dumps([idx_to_class[i] for i in range(num_classes)], indent=2), encoding="utf-8"
     )

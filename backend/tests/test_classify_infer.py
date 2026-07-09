@@ -3,6 +3,18 @@ from __future__ import annotations
 from sorty import classify
 
 
+def test_confusion_matrix_counts_true_by_predicted():
+    from sorty.core.classify import confusion_matrix
+
+    preds = [0, 1, 1, 2, 0]
+    targets = [0, 1, 2, 2, 1]
+    assert confusion_matrix(preds, targets, 3) == [
+        [1, 0, 0],
+        [1, 1, 0],
+        [0, 1, 1],
+    ]
+
+
 def test_find_mismatches_flags_disagreements(dataset):
     ds, root = dataset
     items = ds.items

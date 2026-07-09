@@ -10,8 +10,10 @@ from __future__ import annotations
 import io
 import json
 import os
+import random
 import tempfile
 import zipfile
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -563,30 +565,53 @@ def start_crossval(name: str, body: CrossvalBody) -> dict[str, str]:
     return {"job_id": jobs.submit(work)}
 
 
+def _runs_path(root: Path) -> Path:
+    return meta_dir(root) / "runs.json"
+
+
+def _load_runs(root: Path) -> list[dict]:
+    path = _runs_path(root)
+    if not path.exists():
+        return []
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 @app.post("/api/datasets/{name}/train")
 def start_train(name: str, body: TrainBody) -> dict[str, str]:
-    """Train one model on the whole dataset and save it under .sorty/ for export."""
+    """Train one model on the whole dataset and save it under .sorty/ for export.
+
+    Every run's report is appended to runs.json so settings can be compared across
+    runs. model.pt itself holds only the latest run's weights.
+    """
     root = _root(name)
     _check_train_body(body)
 
     def work(p: JobProgress):
         ds = load_dataset(root)
-        return classify.train_full(
+        report = classify.train_full(
             root, ds, body.epochs, p, model=body.model, valid_only=body.valid_only
         )
+        report["valid_only"] = body.valid_only
+        runs = _load_runs(root)
+        runs.append(report)
+        _runs_path(root).write_text(json.dumps(runs, indent=2), encoding="utf-8")
+        return report
 
     return {"job_id": jobs.submit(work)}
 
 
 @app.get("/api/datasets/{name}/model")
 def model_info(name: str) -> dict[str, Any]:
-    """Whether a saved model exists, plus its training report when it does."""
+    """Whether a saved model exists, its training report, and the full run history."""
     root = _root(name)
     report_path = meta_dir(root) / "report.json"
     report = None
     if report_path.exists():
         report = json.loads(report_path.read_text(encoding="utf-8"))
-    return {"trained": classify.model_exists(root), "report": report}
+    runs = sorted(
+        _load_runs(root), key=lambda r: r.get("trained_at", 0), reverse=True
+    )
+    return {"trained": classify.model_exists(root), "report": report, "runs": runs}
 
 
 @app.get("/api/datasets/{name}/model/export")
@@ -611,27 +636,71 @@ def export_model(name: str) -> Response:
     )
 
 
-@app.get("/api/datasets/{name}/export")
-def export_dataset(name: str) -> FileResponse:
-    """The dataset as a zip: class folders of images plus the manifest.
+def _assign_test_ids(items: list[DatasetItem], test_percent: int, seed: int) -> set[str]:
+    """Item ids that land in test/, split per class so every class covers both sides.
 
-    Built as a temp file rather than in memory, a dataset can run to hundreds of MB.
-    Images are stored uncompressed since they already are.
+    Items are sorted before the seeded shuffle, so the same seed always produces the
+    same split. A class with at least two images keeps at least one on each side no
+    matter the percentage. A single-image class stays in train.
+    """
+    by_label: dict[str, list[DatasetItem]] = defaultdict(list)
+    for item in items:
+        by_label[item.label].append(item)
+
+    rng = random.Random(seed)
+    test_ids: set[str] = set()
+    for label in sorted(by_label):
+        group = sorted(by_label[label], key=lambda i: i.item_id)
+        rng.shuffle(group)
+        n_test = round(len(group) * test_percent / 100)
+        if len(group) >= 2:
+            n_test = min(max(n_test, 1), len(group) - 1)
+        else:
+            n_test = 0
+        test_ids.update(i.item_id for i in group[:n_test])
+    return test_ids
+
+
+@app.get("/api/datasets/{name}/export")
+def export_dataset(
+    name: str, test_percent: int | None = None, seed: int = 42
+) -> FileResponse:
+    """The dataset as a zip, flat class folders or a seeded train/test split.
+
+    Flat exports keep each item's path and include the manifest. With test_percent set,
+    images land in train/<class>/ and test/<class>/ instead, and the manifest is left
+    out since its paths describe the flat layout. Built as a temp file rather than in
+    memory, a dataset can run to hundreds of MB. Images are stored uncompressed since
+    they already are.
     """
     root = _root(name)
+    if test_percent is not None and not 1 <= test_percent <= 90:
+        raise HTTPException(
+            status_code=400, detail="Test share must be between 1 and 90 percent."
+        )
     ds = load_dataset(root)
+    live = [
+        i for i in ds.items if not is_binned(i) and (root / i.local_path).exists()
+    ]
+    test_ids = (
+        _assign_test_ids(live, test_percent, seed) if test_percent is not None else None
+    )
+
     fd, tmp = tempfile.mkstemp(suffix=".zip")
     os.close(fd)
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:
-        for item in ds.items:
-            if is_binned(item):
-                continue
+        for item in live:
             path = root / item.local_path
-            if path.exists():
-                z.write(path, item.local_path.replace("\\", "/"))
-        mp = manifest_path(root)
-        if mp.exists():
-            z.write(mp, f"{MANIFEST_DIR}/{mp.name}")
+            if test_ids is None:
+                arcname = item.local_path.replace("\\", "/")
+            else:
+                split = "test" if item.item_id in test_ids else "train"
+                arcname = f"{split}/{item.label}/{Path(item.local_path).name}"
+            z.write(path, arcname)
+        if test_ids is None:
+            mp = manifest_path(root)
+            if mp.exists():
+                z.write(mp, f"{MANIFEST_DIR}/{mp.name}")
     return FileResponse(
         tmp,
         media_type="application/zip",
