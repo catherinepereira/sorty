@@ -1,10 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Modal, ModalActions } from "./Modal";
 import { Segmented } from "./Segmented";
 import { api, ApiError } from "../api";
 import { prettyClass } from "../classname";
+import type { Item } from "../types";
 
 type SourceInfo = { name: string; requires_contact: boolean };
+
+// matches TrainDialog: below this many images a class trains poorly
+const LOW_COUNT = 10;
 
 /**
  * Fetch images for a dataset. Pick specific classes or leave the picker empty for all,
@@ -15,11 +19,13 @@ type SourceInfo = { name: string; requires_contact: boolean };
 export function GenerateDialog({
   open,
   classes,
+  items,
   onClose,
   onStart,
 }: {
   open: boolean;
   classes: string[];
+  items: Item[];
   onClose: () => void;
   onStart: (body: {
     subjects?: string[];
@@ -36,6 +42,12 @@ export function GenerateDialog({
   const [chosenClasses, setChosenClasses] = useState<Set<string>>(new Set());
   const [count, setCount] = useState(20);
   const [countMode, setCountMode] = useState<"add" | "total">("add");
+
+  const counts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const i of items) m.set(i.label, (m.get(i.label) ?? 0) + 1);
+    return m;
+  }, [items]);
 
   useEffect(() => {
     if (!open) return;
@@ -98,20 +110,26 @@ export function GenerateDialog({
                 {chosenClasses.size ? `(${chosenClasses.size})` : "(all)"}
               </span>
             </p>
-            <div className="mt-1 flex max-h-72 flex-wrap gap-2 overflow-y-auto">
-              {classes.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => toggle(chosenClasses, c, setChosenClasses)}
-                  className={`rounded-lg px-3 py-1.5 text-sm ${
-                    chosenClasses.has(c)
-                      ? "bg-primary text-white"
-                      : "border-border text-muted border"
-                  }`}
-                >
-                  {prettyClass(c)}
-                </button>
-              ))}
+            <div className="mt-1 grid max-h-72 grid-cols-2 gap-2 overflow-y-auto">
+              {classes.map((c) => {
+                const n = counts.get(c) ?? 0;
+                return (
+                  <button
+                    key={c}
+                    onClick={() => toggle(chosenClasses, c, setChosenClasses)}
+                    className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-1.5 text-left text-sm ${
+                      chosenClasses.has(c)
+                        ? "border-primary bg-primary/10"
+                        : "border-border text-muted hover:border-primary"
+                    }`}
+                  >
+                    <span className="truncate">{prettyClass(c)}</span>
+                    <span className={n < LOW_COUNT ? "text-bad" : "text-muted"}>
+                      {n}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}

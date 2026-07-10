@@ -82,6 +82,53 @@ def test_crop_rejects_box_outside_image(dataset):
         annotate.crop_item(ds, root, item.item_id, 0, 0, 0, 5)
 
 
+def test_flip_mirrors_pixels(dataset):
+    from PIL import Image
+
+    ds, root = dataset
+    item = ds.items[0]
+    path = root / item.local_path
+    # left half red, right half blue, so a mirror is visible in the corner pixel
+    img = Image.new("RGB", (8, 8), (255, 0, 0))
+    img.paste((0, 0, 255), (4, 0, 8, 8))
+    img.save(path)
+
+    annotate.flip_item(ds, root, item.item_id, "y")
+    with Image.open(path) as flipped:
+        assert flipped.getpixel((0, 0)) == (0, 0, 255)
+        assert flipped.getpixel((7, 0)) == (255, 0, 0)
+
+    # x flips top-bottom, which leaves this left/right pattern unchanged
+    annotate.flip_item(ds, root, item.item_id, "x")
+    with Image.open(path) as flipped:
+        assert flipped.getpixel((0, 0)) == (0, 0, 255)
+
+    with pytest.raises(ValueError):
+        annotate.flip_item(ds, root, item.item_id, "diagonal")
+
+
+def test_flip_items_batch(dataset):
+    from PIL import Image
+
+    ds, root = dataset
+    targets = ds.items[:2]
+    # left half red, right half blue on both images, so the mirror shows in a corner
+    for item in targets:
+        img = Image.new("RGB", (8, 8), (255, 0, 0))
+        img.paste((0, 0, 255), (4, 0, 8, 8))
+        img.save(root / item.local_path)
+
+    # a stale id in the batch is skipped, not fatal
+    ids = [i.item_id for i in targets] + ["nope"]
+    assert annotate.flip_items(ds, root, ids, "y") == 2
+    for item in targets:
+        with Image.open(root / item.local_path) as img:
+            assert img.getpixel((0, 0)) == (0, 0, 255)
+
+    with pytest.raises(ValueError):
+        annotate.flip_items(ds, root, ids, "diagonal")
+
+
 def test_duplicate_creates_new_id_and_file(dataset):
     ds, root = dataset
     source = ds.items[0]

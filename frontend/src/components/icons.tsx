@@ -76,6 +76,28 @@ export function ArchiveIcon(p: IconProps) {
   );
 }
 
+export function FlipHIcon(p: IconProps) {
+  // mirror left-right: two facing triangles around a dashed vertical axis
+  return (
+    <Svg {...p}>
+      <path d="M12 3v18" strokeDasharray="2 2" />
+      <path d="M9 7L3 12l6 5z" />
+      <path d="M15 7l6 5-6 5z" />
+    </Svg>
+  );
+}
+
+export function FlipVIcon(p: IconProps) {
+  // flip top-bottom: two facing triangles around a dashed horizontal axis
+  return (
+    <Svg {...p}>
+      <path d="M3 12h18" strokeDasharray="2 2" />
+      <path d="M7 9l5-6 5 6z" />
+      <path d="M7 15l5 6 5-6z" />
+    </Svg>
+  );
+}
+
 export function ForkIcon(p: IconProps) {
   // one path splitting in two, for creating train/test sets
   return (

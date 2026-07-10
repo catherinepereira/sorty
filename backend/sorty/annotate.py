@@ -145,6 +145,57 @@ def crop_item(
     ds.touch()
 
 
+def _flip_file(path: Path, axis: str) -> None:
+    with Image.open(path) as raw:
+        # bake the EXIF orientation in first, so the flip matches what the browser shows
+        img = ImageOps.exif_transpose(raw)
+        flipped = ImageOps.flip(img) if axis == "x" else ImageOps.mirror(img)
+        flipped.load()
+    # JPEG can't hold an alpha or palette mode the source may carry
+    if flipped.mode != "RGB" and path.suffix.lower() in {".jpg", ".jpeg"}:
+        flipped = flipped.convert("RGB")
+    flipped.save(path)
+
+
+def flip_item(ds: Dataset, root: Path, item_id: str, axis: str) -> None:
+    """Mirror an item's image file in place.
+
+    axis "y" mirrors left-right (across the vertical axis), "x" flips top-bottom.
+    The id, label, and path all stay the same, only the file's pixels change.
+    """
+    if axis not in {"x", "y"}:
+        raise ValueError(f"Unknown axis {axis!r}. Choose x or y.")
+    item = find_item(ds, item_id)
+    path = root / item.local_path
+    if not path.exists():
+        raise ValueError("The image file is missing on disk.")
+    _flip_file(path, axis)
+    ds.touch()
+
+
+def flip_items(ds: Dataset, root: Path, item_ids: list[str], axis: str) -> int:
+    """Mirror many items' image files in place. Returns how many were flipped.
+
+    Missing ids and missing files are skipped rather than raising, so a stale
+    selection does not abort the batch.
+    """
+    if axis not in {"x", "y"}:
+        raise ValueError(f"Unknown axis {axis!r}. Choose x or y.")
+    wanted = set(item_ids)
+    flipped = 0
+    for item in ds.items:
+        if item.item_id not in wanted:
+            continue
+        path = root / item.local_path
+        if not path.exists():
+            continue
+        _flip_file(path, axis)
+        flipped += 1
+    if flipped:
+        ds.touch()
+    return flipped
+
+
 def set_status(ds: Dataset, item_id: str, status: ReviewStatus) -> None:
     find_item(ds, item_id).review_status = status
     ds.touch()

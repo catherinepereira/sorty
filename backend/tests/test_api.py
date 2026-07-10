@@ -157,6 +157,32 @@ def test_set_status_many(with_dataset):
     assert all(i["status"] == "valid" for i in after)
 
 
+def test_flip_many(with_dataset, ws_root):
+    from PIL import Image
+
+    root = workspace.datasets_dir(ws_root) / "birds"
+    items = with_dataset.get("/api/datasets/birds").json()["items"][:2]
+    # left half red, right half blue, so the mirror shows in a corner pixel
+    for item in items:
+        img = Image.new("RGB", (8, 8), (255, 0, 0))
+        img.paste((0, 0, 255), (4, 0, 8, 8))
+        img.save(root / item["local_path"])
+
+    ids = [i["id"] for i in items]
+    r = with_dataset.post(
+        "/api/datasets/birds/flip", json={"item_ids": ids, "axis": "y"}
+    )
+    assert r.json() == {"flipped": 2}
+    for item in items:
+        with Image.open(root / item["local_path"]) as img:
+            assert img.getpixel((0, 0)) == (0, 0, 255)
+
+    r = with_dataset.post(
+        "/api/datasets/birds/flip", json={"item_ids": ids, "axis": "diagonal"}
+    )
+    assert r.status_code == 400
+
+
 def test_annotate_missing_item_404(with_dataset):
     r = with_dataset.post(
         "/api/datasets/birds/items/nope/status", json={"status": "valid"}

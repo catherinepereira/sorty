@@ -17,14 +17,17 @@ import { TrainingPanel } from "../components/TrainingPanel";
 import { Expandable } from "../components/Expandable";
 import { JobProgress } from "../components/JobProgress";
 import { FilterSidebar, type Filters } from "../components/FilterSidebar";
-import { Select } from "../components/Select";
+import {
+  SelectionPanel,
+  type SelectionChanges,
+} from "../components/SelectionPanel";
 import {
   CloseIcon,
   PencilIcon,
   RefreshIcon,
   TrashIcon,
 } from "../components/icons";
-import type { Item, JobState, Status } from "../types";
+import type { Item, JobState } from "../types";
 import { statusLabel } from "../status";
 import { prettyClass } from "../classname";
 import { clearActiveJob, getActiveJob, setActiveJob } from "../activeJobs";
@@ -53,6 +56,7 @@ export function DatasetPage() {
     setSelected,
     clearSelection,
     setSelectMode,
+    bustImages,
   } = useDataset();
   const { ask, element: confirmEl } = useConfirm();
 
@@ -329,36 +333,44 @@ export function DatasetPage() {
     [name, refresh],
   );
 
-  const moveSelectedTo = async (subject: string) => {
-    const ids = [...selected];
-    if (!ids.length || !subject) return;
-    await api.moveToClass(name, ids, subject);
-    clearSelection();
-    refresh();
-  };
-
-  const moveSelectedToSplit = async (split: string) => {
-    const ids = [...selected];
-    if (!ids.length || !split) return;
-    try {
-      await api.moveSplit(name, ids, split);
-      clearSelection();
-      refresh();
-    } catch (e) {
-      notify(e instanceof ApiError ? e.message : "Could not move", "error");
-    }
-  };
-
-  const markSelected = async (status: Status) => {
+  // apply the queued selection-panel changes in one pass, each over its batch endpoint
+  const applySelection = async (changes: SelectionChanges) => {
     const ids = [...selected];
     if (!ids.length) return;
     try {
-      await api.setStatusMany(name, ids, status);
-      clearSelection();
-      refresh();
+      if (changes.status) await api.setStatusMany(name, ids, changes.status);
+      if (changes.subject) await api.moveToClass(name, ids, changes.subject);
+      if (changes.split) await api.moveSplit(name, ids, changes.split);
+      if (changes.flipY) await api.flipItems(name, ids, "y");
+      if (changes.flipX) await api.flipItems(name, ids, "x");
     } catch (e) {
-      notify(e instanceof ApiError ? e.message : "Could not mark", "error");
+      await refresh();
+      notify(
+        e instanceof ApiError ? e.message : "Could not apply changes",
+        "error",
+      );
+      // rethrow so the panel keeps the queued changes for a retry
+      throw e;
     }
+    clearSelection();
+    await refresh();
+    // flips edit pixels under unchanged URLs, so force the grid to refetch them
+    if (changes.flipY || changes.flipX) bustImages(ids);
+    const parts: string[] = [];
+    if (changes.status) parts.push(`marked ${statusLabel(changes.status)}`);
+    if (changes.subject) parts.push(`moved to ${prettyClass(changes.subject)}`);
+    if (changes.split)
+      parts.push(
+        changes.split === "none"
+          ? "removed from splits"
+          : `moved to the ${changes.split} split`,
+      );
+    if (changes.flipY) parts.push("mirrored left-right");
+    if (changes.flipX) parts.push("flipped top-bottom");
+    notify(
+      `${ids.length} image${ids.length === 1 ? "" : "s"}: ${parts.join(", ")}.`,
+      "success",
+    );
   };
 
   const runCreateSplits = async (body: {
@@ -576,79 +588,15 @@ export function DatasetPage() {
       )}
 
       {selected.size > 0 && (
-        <div className="border-primary bg-primary-soft sticky top-2 z-10 mb-4 flex items-center gap-3 rounded-xl border px-4 py-2">
-          <span className="text-sm font-medium">{selected.size} selected</span>
-          <button
-            className="text-muted hover:text-text text-sm"
-            onClick={selectVisible}
-          >
-            Select all
-          </button>
-          <button
-            className="text-muted hover:text-text text-sm"
-            onClick={clearSelection}
-          >
-            Clear
-          </button>
-          <div
-            className={`ml-auto ${detail.locks.review ? "pointer-events-none opacity-40" : ""}`}
-            title={
-              detail.locks.review
-                ? "Reviewing is locked for this dataset"
-                : undefined
-            }
-          >
-            <Select
-              className="w-32"
-              value=""
-              placeholder="Mark as"
-              options={[
-                { value: "valid", label: statusLabel("valid") },
-                { value: "pending", label: statusLabel("pending") },
-              ]}
-              onChange={(v) => markSelected(v as Status)}
-            />
-          </div>
-          <Select
-            className="w-40"
-            value=""
-            placeholder="Move to class"
-            options={detail.subjects.map((c) => ({
-              value: c,
-              label: prettyClass(c),
-            }))}
-            onChange={(v) => moveSelectedTo(v)}
-          />
-          <div
-            className={
-              detail.locks.splits ? "pointer-events-none opacity-40" : ""
-            }
-            title={
-              detail.locks.splits
-                ? "Splits are locked for this dataset"
-                : undefined
-            }
-          >
-            <Select
-              className="w-36"
-              value=""
-              placeholder="Move to split"
-              options={[
-                { value: "train", label: "Train" },
-                { value: "test", label: "Test" },
-                { value: "valid", label: "Valid" },
-                { value: "none", label: "No split" },
-              ]}
-              onChange={(v) => moveSelectedToSplit(v)}
-            />
-          </div>
-          <button
-            className="bg-bad rounded-lg px-3 py-1.5 text-sm font-medium text-white"
-            onClick={deleteSelected}
-          >
-            Delete to bin
-          </button>
-        </div>
+        <SelectionPanel
+          count={selected.size}
+          classes={detail.subjects}
+          locks={detail.locks}
+          onSelectAll={selectVisible}
+          onClear={clearSelection}
+          onApply={applySelection}
+          onDelete={deleteSelected}
+        />
       )}
 
       {detail.items.length === 0 ? (
@@ -718,6 +666,7 @@ export function DatasetPage() {
       <GenerateDialog
         open={dialog === "generate"}
         classes={detail.subjects}
+        items={items}
         onClose={() => setDialog(null)}
         onStart={(body) => runJob(() => api.generate(name, body))}
       />

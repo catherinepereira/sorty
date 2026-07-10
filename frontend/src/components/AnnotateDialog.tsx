@@ -8,7 +8,15 @@ import type { Item, Status } from "../types";
 import { statusLabel } from "../status";
 import { humanBytes } from "../format";
 import { getHotkeys } from "../settings";
-import { BackIcon, CloseIcon, CopyIcon, CropIcon, TrashIcon } from "./icons";
+import {
+  BackIcon,
+  CloseIcon,
+  CopyIcon,
+  CropIcon,
+  FlipHIcon,
+  FlipVIcon,
+  TrashIcon,
+} from "./icons";
 
 type FileDetails = {
   width: number | null;
@@ -62,6 +70,7 @@ export function AnnotateDialog({
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const [cropBusy, setCropBusy] = useState(false);
   const [cropError, setCropError] = useState("");
+  const [flipBusy, setFlipBusy] = useState(false);
   // bumped after each crop so the img src changes and the browser refetches the file
   const [imgVersion, setImgVersion] = useState(0);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
@@ -228,6 +237,31 @@ export function AnnotateDialog({
     }
   };
 
+  const applyFlip = async (axis: "x" | "y") => {
+    if (flipBusy) return;
+    setFlipBusy(true);
+    try {
+      const { item: updated } = await api.flipItem(
+        datasetName,
+        current.id,
+        axis,
+      );
+      // same cache-busting as crop: the file changed in place, so force a refetch
+      const version = Date.now();
+      setImgVersion(version);
+      setCurrent(updated);
+      replaceItem({ ...updated, url: `${updated.url}?v=${version}` });
+      setDims({
+        width: updated.width,
+        height: updated.height,
+        bytes: updated.bytes,
+        ingested: updated.ingested,
+      });
+    } finally {
+      setFlipBusy(false);
+    }
+  };
+
   // the current class may be one the dataset no longer declares, so include it as an option
   const classOptions = (
     classes.includes(current.label) ? classes : [current.label, ...classes]
@@ -280,6 +314,24 @@ export function AnnotateDialog({
             aria-label="Crop image"
           >
             <CropIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => applyFlip("y")}
+            disabled={flipBusy}
+            className="border-border text-muted hover:text-primary flex h-8 w-8 items-center justify-center rounded-full border disabled:opacity-40"
+            title="Mirror left-right (y-axis)"
+            aria-label="Mirror left-right"
+          >
+            <FlipHIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => applyFlip("x")}
+            disabled={flipBusy}
+            className="border-border text-muted hover:text-primary flex h-8 w-8 items-center justify-center rounded-full border disabled:opacity-40"
+            title="Flip top-bottom (x-axis)"
+            aria-label="Flip top-bottom"
+          >
+            <FlipVIcon className="h-4 w-4" />
           </button>
           <button
             onClick={() => onDuplicate(current.id)}

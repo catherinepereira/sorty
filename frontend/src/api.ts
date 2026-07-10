@@ -126,6 +126,20 @@ export const api = {
         ingested: number | null;
       };
     }>(`/api/datasets/${name}/items/${id}/crop`, box),
+  flipItem: (name: string, id: string, axis: "x" | "y") =>
+    post<{
+      item: Item & {
+        width: number | null;
+        height: number | null;
+        bytes: number | null;
+        ingested: number | null;
+      };
+    }>(`/api/datasets/${name}/items/${id}/flip`, { axis }),
+  flipItems: (name: string, ids: string[], axis: "x" | "y") =>
+    post<{ flipped: number }>(`/api/datasets/${name}/flip`, {
+      item_ids: ids,
+      axis,
+    }),
   setStatus: (name: string, id: string, status: Status) =>
     post<{ item: Item }>(`/api/datasets/${name}/items/${id}/status`, {
       status,

@@ -15,6 +15,7 @@ interface DatasetStore {
   clearSelection: () => void;
   setSelectMode: (on: boolean) => void;
   replaceItem: (item: Item) => void;
+  bustImages: (ids: string[]) => void;
 }
 
 export const useDataset = create<DatasetStore>((set, get) => ({
@@ -69,6 +70,23 @@ export const useDataset = create<DatasetStore>((set, get) => ({
       detail: {
         ...detail,
         items: detail.items.map((i) => (i.id === item.id ? item : i)),
+      },
+    });
+  },
+
+  // append a version param to the given items' image URLs, so the grid refetches
+  // thumbnails after an in-place pixel edit like a flip
+  bustImages: (ids) => {
+    const detail = get().detail;
+    if (!detail) return;
+    const wanted = new Set(ids);
+    const v = Date.now();
+    set({
+      detail: {
+        ...detail,
+        items: detail.items.map((i) =>
+          wanted.has(i.id) ? { ...i, url: `${i.url.split("?")[0]}?v=${v}` } : i,
+        ),
       },
     });
   },

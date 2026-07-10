@@ -139,6 +139,17 @@ class StatusManyBody(BaseModel):
     status: ReviewStatus
 
 
+class FlipBody(BaseModel):
+    # "y" mirrors left-right (across the vertical axis), "x" flips top-bottom
+    axis: str
+
+
+class FlipManyBody(BaseModel):
+    item_ids: list[str]
+    # same axis values as FlipBody
+    axis: str
+
+
 class CropBody(BaseModel):
     # the box to keep, in pixels of the original image
     left: int
@@ -506,6 +517,35 @@ def crop_item(name: str, item_id: str, body: CropBody) -> dict[str, Any]:
     view = _item_view(item, root)
     view.update(summary.file_info(root, item.local_path))
     return {"item": view}
+
+
+@app.post("/api/datasets/{name}/items/{item_id}/flip")
+def flip_item(name: str, item_id: str, body: FlipBody) -> dict[str, Any]:
+    """Mirror the item's image in place and return the item with its dimensions."""
+    ds, root = _load(name)
+    try:
+        annotate.flip_item(ds, root, item_id, body.axis)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="No such item")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    save_dataset(ds, root)
+    item = annotate.find_item(ds, item_id)
+    view = _item_view(item, root)
+    view.update(summary.file_info(root, item.local_path))
+    return {"item": view}
+
+
+@app.post("/api/datasets/{name}/flip")
+def flip_items(name: str, body: FlipManyBody) -> dict[str, int]:
+    """Mirror many items' images in place. Returns how many were flipped."""
+    ds, root = _load(name)
+    try:
+        flipped = annotate.flip_items(ds, root, body.item_ids, body.axis)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    save_dataset(ds, root)
+    return {"flipped": flipped}
 
 
 @app.post("/api/datasets/{name}/set-status")
