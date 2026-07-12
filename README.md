@@ -1,5 +1,7 @@
 # 🤖 Sorty
 
+ <img width="1868" height="1265" alt="sorty" src="https://github.com/user-attachments/assets/5813d4fb-dbcf-41a1-a2d9-3f67994a3a0d" />
+
 A local tool for building and cleaning image classification datasets. A FastAPI backend
 facilitates the dataset generation pipeline (resolve classes, fetch from image sources, download, dedup,
 train, infer) and a React frontend gives you a grid to browse, annotate, and clean the
