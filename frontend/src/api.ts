@@ -1,4 +1,5 @@
 import type {
+  Box,
   DatasetDetail,
   DatasetSummary,
   DatasetSummaryStats,
@@ -135,6 +136,18 @@ export const api = {
         ingested: number | null;
       };
     }>(`/api/datasets/${name}/items/${id}/flip`, { axis }),
+  setBoxes: (
+    name: string,
+    id: string,
+    boxes: Box[],
+    width: number,
+    height: number,
+  ) =>
+    send<{ item: Item }>("PUT", `/api/datasets/${name}/items/${id}/boxes`, {
+      boxes,
+      width,
+      height,
+    }),
   flipItems: (name: string, ids: string[], axis: "x" | "y") =>
     post<{ flipped: number }>(`/api/datasets/${name}/flip`, {
       item_ids: ids,

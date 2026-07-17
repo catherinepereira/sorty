@@ -1,5 +1,14 @@
 export type Status = "pending" | "valid" | "invalid";
 
+// one detection box in COCO pixel coordinates (top-left corner plus extents), with its class slug
+export interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  label: string;
+}
+
 export interface Item {
   id: string;
   // class slug (e.g. "boat-pose"), prettified for display via prettyClass
@@ -17,6 +26,8 @@ export interface Item {
   predicted: string | null;
   // which split the image sits in ("train" | "test" | "valid"), null for flat class folders
   split: string | null;
+  // detection boxes in COCO pixel coordinates, empty for images with none
+  boxes: Box[];
 }
 
 export interface DatasetSummary {

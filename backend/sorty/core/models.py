@@ -19,6 +19,20 @@ class ReviewStatus(str, Enum):
     invalid = "invalid"
 
 
+class Box(BaseModel):
+    """One detection box in COCO pixel coordinates: top-left corner plus extents.
+
+    x, y, w, h are absolute pixels of the image as stored on disk, matching COCO's
+    bbox = [x, y, width, height]. label is a class slug from the dataset's subjects.
+    """
+
+    x: float
+    y: float
+    w: float
+    h: float
+    label: str
+
+
 class DatasetItem(BaseModel):
     item_id: str
     # the class this image belongs to, a slug (e.g. "boat-pose"). the UI prettifies it
@@ -33,6 +47,8 @@ class DatasetItem(BaseModel):
     deleted_at: float | None = None
     # the class the cross-validated model predicted, None until a model has run
     predicted_label: str | None = None
+    # detection boxes in COCO pixel coordinates, empty for images with none
+    boxes: list[Box] = Field(default_factory=list)
 
     @classmethod
     def make_id(cls, key: str) -> str:

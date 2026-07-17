@@ -183,6 +183,27 @@ def test_flip_many(with_dataset, ws_root):
     assert r.status_code == 400
 
 
+def test_set_boxes_round_trip(with_dataset):
+    items = with_dataset.get("/api/datasets/birds").json()["items"]
+    item_id = items[0]["id"]
+    r = with_dataset.put(
+        f"/api/datasets/birds/items/{item_id}/boxes",
+        json={
+            "boxes": [{"x": 1, "y": 1, "w": 3, "h": 3, "label": "robin"}],
+            "width": 8,
+            "height": 8,
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["item"]["boxes"] == [
+        {"x": 1, "y": 1, "w": 3, "h": 3, "label": "robin"}
+    ]
+    # boxes persist on the next read
+    after = with_dataset.get("/api/datasets/birds").json()["items"]
+    stored = next(i for i in after if i["id"] == item_id)
+    assert len(stored["boxes"]) == 1
+
+
 def test_annotate_missing_item_404(with_dataset):
     r = with_dataset.post(
         "/api/datasets/birds/items/nope/status", json={"status": "valid"}

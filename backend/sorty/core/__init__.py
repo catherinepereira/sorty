@@ -23,7 +23,7 @@ from sorty.core.clean import (
 from sorty.core.download import download_file, extension_for, host_is_public
 from sorty.core.ids import slugify
 from sorty.core.images import DecodeError, open_rgb
-from sorty.core.models import Dataset, DatasetItem, ReviewStatus
+from sorty.core.models import Box, Dataset, DatasetItem, ReviewStatus
 from sorty.core.paths import MANIFEST_DIR, has_manifest, manifest_path, meta_dir
 from sorty.core.pipeline import GenerateResult, add_images, records_to_items
 from sorty.core.progress import OnProgress, Progress, Reporter
@@ -38,7 +38,7 @@ from sorty.core.sources import (
 from sorty.core.store import load_dataset, prune_missing, save_dataset
 
 __all__ = [
-    "Dataset", "DatasetItem", "ReviewStatus",
+    "Box", "Dataset", "DatasetItem", "ReviewStatus",
     "load_dataset", "save_dataset", "prune_missing",
     "slugify", "meta_dir", "has_manifest", "manifest_path", "MANIFEST_DIR",
     "resolve_subjects",

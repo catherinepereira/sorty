@@ -24,6 +24,7 @@ from starlette.background import BackgroundTask
 
 from sorty.core import (
     MANIFEST_DIR,
+    Box,
     Dataset,
     DatasetItem,
     ReviewStatus,
@@ -66,6 +67,7 @@ def _item_view(item: DatasetItem, root: Path) -> dict[str, Any]:
         "filename": local.name,
         "predicted": item.predicted_label,
         "split": annotate.item_split(item.local_path),
+        "boxes": [b.model_dump() for b in item.boxes],
     }
 
 
@@ -154,6 +156,22 @@ class CropBody(BaseModel):
     # the box to keep, in pixels of the original image
     left: int
     top: int
+    width: int
+    height: int
+
+
+class BoxIn(BaseModel):
+    # one detection box in COCO pixels of the current image, with its class slug
+    x: float
+    y: float
+    w: float
+    h: float
+    label: str
+
+
+class BoxesBody(BaseModel):
+    boxes: list[BoxIn]
+    # the image's current pixel dimensions, so boxes can be clamped server-side
     width: int
     height: int
 
@@ -534,6 +552,21 @@ def flip_item(name: str, item_id: str, body: FlipBody) -> dict[str, Any]:
     view = _item_view(item, root)
     view.update(summary.file_info(root, item.local_path))
     return {"item": view}
+
+
+@app.put("/api/datasets/{name}/items/{item_id}/boxes")
+def set_boxes(name: str, item_id: str, body: BoxesBody) -> dict[str, Any]:
+    """Replace the item's detection boxes and return the item with its boxes."""
+    ds, root = _load(name)
+    boxes = [Box(x=b.x, y=b.y, w=b.w, h=b.h, label=b.label) for b in body.boxes]
+    try:
+        annotate.set_boxes(ds, item_id, boxes, body.width, body.height)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="No such item")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    save_dataset(ds, root)
+    return {"item": _item_view(annotate.find_item(ds, item_id), root)}
 
 
 @app.post("/api/datasets/{name}/flip")

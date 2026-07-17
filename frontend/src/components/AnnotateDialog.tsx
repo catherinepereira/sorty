@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "./Modal";
 import { Select } from "./Select";
+import { BoxOverlay } from "./BoxOverlay";
+import { boxColor } from "../boxcolor";
 import { prettyClass } from "../classname";
 import { api, ApiError } from "../api";
 import { useDataset } from "../stores/dataset";
-import type { Item, Status } from "../types";
+import type { Box, Item, Status } from "../types";
 import { statusLabel } from "../status";
 import { humanBytes } from "../format";
 import { getHotkeys } from "../settings";
 import {
   BackIcon,
+  BoxIcon,
   CloseIcon,
   CopyIcon,
   CropIcon,
@@ -71,6 +74,15 @@ export function AnnotateDialog({
   const [cropBusy, setCropBusy] = useState(false);
   const [cropError, setCropError] = useState("");
   const [flipBusy, setFlipBusy] = useState(false);
+
+  // box-drawing mode: a working copy of the item's boxes, the class new boxes get,
+  // and the box being dragged out now (in displayed pixels, converted on drop)
+  const [boxing, setBoxing] = useState(false);
+  const [boxes, setBoxes] = useState<Box[]>([]);
+  const [boxLabel, setBoxLabel] = useState("");
+  const [boxBusy, setBoxBusy] = useState(false);
+  const [boxError, setBoxError] = useState("");
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
   // bumped after each crop so the img src changes and the browser refetches the file
   const [imgVersion, setImgVersion] = useState(0);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
@@ -81,6 +93,11 @@ export function AnnotateDialog({
     setCropping(false);
     setSel(null);
     setCropError("");
+    setBoxing(false);
+    setBoxError("");
+    setNatural(null);
+    setBoxes(item?.boxes ?? []);
+    setBoxLabel(item?.label ?? "");
     if (item) {
       setDims(null);
       api
@@ -262,6 +279,62 @@ export function AnnotateDialog({
     }
   };
 
+  // in boxing mode a finished drag becomes a new box, converted to natural pixels
+  const endBoxDrag = () => {
+    dragStart.current = null;
+    const img = imgRef.current;
+    if (!img || !sel || sel.w < 2 || sel.h < 2) {
+      setSel(null);
+      return;
+    }
+    const scale = img.naturalWidth / img.clientWidth;
+    const box: Box = {
+      x: Math.round(sel.x * scale),
+      y: Math.round(sel.y * scale),
+      w: Math.round(sel.w * scale),
+      h: Math.round(sel.h * scale),
+      label: boxLabel,
+    };
+    setBoxes((bs) => [...bs, box]);
+    setSel(null);
+  };
+
+  const removeBox = (idx: number) =>
+    setBoxes((bs) => bs.filter((_, i) => i !== idx));
+
+  const exitBoxing = () => {
+    setBoxing(false);
+    setSel(null);
+    setCursor(null);
+    setBoxError("");
+    setBoxes(current.boxes);
+  };
+
+  const saveBoxes = async () => {
+    const img = imgRef.current;
+    if (!img || boxBusy) return;
+    setBoxBusy(true);
+    setBoxError("");
+    try {
+      const { item: updated } = await api.setBoxes(
+        datasetName,
+        current.id,
+        boxes,
+        img.naturalWidth,
+        img.naturalHeight,
+      );
+      applied(updated);
+      setBoxes(updated.boxes);
+      setBoxing(false);
+    } catch (e) {
+      setBoxError(
+        e instanceof ApiError ? e.message : "Could not save the boxes",
+      );
+    } finally {
+      setBoxBusy(false);
+    }
+  };
+
   // the current class may be one the dataset no longer declares, so include it as an option
   const classOptions = (
     classes.includes(current.label) ? classes : [current.label, ...classes]
@@ -314,6 +387,28 @@ export function AnnotateDialog({
             aria-label="Crop image"
           >
             <CropIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => {
+              if (boxing) {
+                exitBoxing();
+                return;
+              }
+              // reload so boxes are measured against the current file
+              setImgVersion(Date.now());
+              setBoxes(current.boxes);
+              setBoxLabel(current.label);
+              setBoxing(true);
+            }}
+            className={`flex h-8 w-8 items-center justify-center rounded-full ${
+              boxing
+                ? "bg-primary text-white"
+                : "border-border text-muted hover:text-primary border"
+            }`}
+            title="Draw detection boxes"
+            aria-label="Draw detection boxes"
+          >
+            <BoxIcon className="h-4 w-4" />
           </button>
           <button
             onClick={() => applyFlip("y")}
@@ -400,12 +495,90 @@ export function AnnotateDialog({
               )}
             </div>
           </div>
+        ) : boxing ? (
+          <div className="bg-bg flex justify-center rounded-lg">
+            <div
+              className="relative cursor-crosshair touch-none select-none"
+              onPointerDown={startDrag}
+              onPointerMove={moveDrag}
+              onPointerUp={endBoxDrag}
+            >
+              <img
+                ref={imgRef}
+                src={imgSrc}
+                alt={prettyClass(current.label)}
+                draggable={false}
+                onLoad={(e) =>
+                  setNatural({
+                    w: e.currentTarget.naturalWidth,
+                    h: e.currentTarget.naturalHeight,
+                  })
+                }
+                className="block max-h-[60vh] max-w-full"
+              />
+              {/* saved boxes, each click-to-delete via a small handle */}
+              {natural &&
+                boxes.map((b, i) => (
+                  <div
+                    key={i}
+                    className="absolute border-2"
+                    style={{
+                      left: `${(b.x / natural.w) * 100}%`,
+                      top: `${(b.y / natural.h) * 100}%`,
+                      width: `${(b.w / natural.w) * 100}%`,
+                      height: `${(b.h / natural.h) * 100}%`,
+                      borderColor: boxColor(b.label),
+                    }}
+                  >
+                    <span
+                      className="absolute top-0 left-0 -translate-y-full px-1 text-[10px] leading-tight font-medium text-white"
+                      style={{ backgroundColor: boxColor(b.label) }}
+                    >
+                      {prettyClass(b.label)}
+                    </span>
+                    <button
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => removeBox(i)}
+                      className="bg-bad absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full text-white"
+                      title="Remove box"
+                      aria-label="Remove box"
+                    >
+                      <CloseIcon className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              {sel && sel.w > 0 && sel.h > 0 && (
+                <div
+                  className="border-primary bg-primary/20 pointer-events-none absolute border-2 border-dashed"
+                  style={{
+                    left: sel.x,
+                    top: sel.y,
+                    width: sel.w,
+                    height: sel.h,
+                  }}
+                />
+              )}
+            </div>
+          </div>
         ) : (
-          <img
-            src={imgSrc}
-            alt={prettyClass(current.label)}
-            className="bg-bg max-h-[60vh] w-full rounded-lg object-contain"
-          />
+          <div className="bg-bg flex justify-center rounded-lg">
+            <div className="relative">
+              <img
+                src={imgSrc}
+                alt={prettyClass(current.label)}
+                onLoad={(e) =>
+                  setNatural({
+                    w: e.currentTarget.naturalWidth,
+                    h: e.currentTarget.naturalHeight,
+                  })
+                }
+                className="block max-h-[60vh] max-w-full rounded-lg"
+              />
+              {current.boxes.length > 0 && (
+                <BoxOverlay boxes={current.boxes} natural={natural} />
+              )}
+            </div>
+          </div>
         )}
 
         {cropping && (
@@ -429,6 +602,44 @@ export function AnnotateDialog({
             {cropError && (
               <p className="text-bad w-full text-sm">{cropError}</p>
             )}
+          </div>
+        )}
+
+        {boxing && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-40">
+                <label className="text-muted mb-1 block text-xs font-medium">
+                  New box class
+                </label>
+                <Select
+                  className="w-44"
+                  value={boxLabel}
+                  placeholder="Choose class"
+                  options={classOptions}
+                  onChange={setBoxLabel}
+                />
+              </div>
+              <p className="text-muted flex-1 text-sm">
+                Drag on the image to add a {prettyClass(boxLabel)} box.{" "}
+                {boxes.length} box{boxes.length === 1 ? "" : "es"} on this
+                image.
+              </p>
+              <button
+                onClick={exitBoxing}
+                className="text-muted hover:text-text px-3 py-1.5 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveBoxes}
+                disabled={boxBusy}
+                className="bg-primary rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {boxBusy ? "Saving" : "Save boxes"}
+              </button>
+            </div>
+            {boxError && <p className="text-bad text-sm">{boxError}</p>}
           </div>
         )}
 
@@ -502,6 +713,12 @@ function ItemDetail({ item, dims }: { item: Item; dims: FileDetails | null }) {
       <Row label="File" value={item.filename} />
       {dims && dims.width && (
         <Row label="Size" value={`${dims.width}×${dims.height}`} />
+      )}
+      {item.boxes.length > 0 && (
+        <Row
+          label="Boxes"
+          value={`${item.boxes.length} detection box${item.boxes.length === 1 ? "" : "es"}`}
+        />
       )}
       {dims && dims.bytes != null && (
         <Row label="On disk" value={humanBytes(dims.bytes)} />

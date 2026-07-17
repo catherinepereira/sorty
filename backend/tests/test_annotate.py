@@ -129,6 +129,77 @@ def test_flip_items_batch(dataset):
         annotate.flip_items(ds, root, ids, "diagonal")
 
 
+def test_set_boxes_clamps_and_drops(dataset):
+    from sorty.core import Box
+
+    ds, root = dataset
+    item = ds.items[0]
+    # fixture images are 8x8: one in-bounds box, one that overflows and clamps,
+    # one that collapses to nothing and is dropped
+    annotate.set_boxes(
+        ds,
+        item.item_id,
+        [
+            Box(x=1, y=1, w=3, h=3, label="robin"),
+            Box(x=6, y=6, w=10, h=10, label="robin"),
+            Box(x=8, y=8, w=4, h=4, label="robin"),
+        ],
+        8,
+        8,
+    )
+    assert len(item.boxes) == 2
+    assert item.boxes[1].w == 2 and item.boxes[1].h == 2
+
+
+def test_set_boxes_rejects_unlabeled(dataset):
+    from sorty.core import Box
+
+    ds, root = dataset
+    item = ds.items[0]
+    with pytest.raises(ValueError):
+        annotate.set_boxes(ds, item.item_id, [Box(x=0, y=0, w=2, h=2, label="")], 8, 8)
+
+
+def test_crop_shifts_and_clips_boxes(dataset):
+    from sorty.core import Box
+
+    ds, root = dataset
+    item = ds.items[0]
+    annotate.set_boxes(
+        ds,
+        item.item_id,
+        [
+            Box(x=2, y=2, w=4, h=4, label="robin"),
+            Box(x=0, y=0, w=1, h=1, label="robin"),
+        ],
+        8,
+        8,
+    )
+    # crop to the 3,3..8,8 region: the first box shifts and clips, the second falls out
+    annotate.crop_item(ds, root, item.item_id, 3, 3, 5, 5)
+    assert len(item.boxes) == 1
+    b = item.boxes[0]
+    assert (b.x, b.y, b.w, b.h) == (0, 0, 3, 3)
+
+
+def test_flip_mirrors_boxes(dataset):
+    from sorty.core import Box
+
+    ds, root = dataset
+    item = ds.items[0]
+    annotate.set_boxes(ds, item.item_id, [Box(x=1, y=2, w=2, h=3, label="robin")], 8, 8)
+
+    annotate.flip_item(ds, root, item.item_id, "y")
+    b = item.boxes[0]
+    # y-axis mirror: x' = W - x - w = 8 - 1 - 2 = 5, y unchanged
+    assert (b.x, b.y, b.w, b.h) == (5, 2, 2, 3)
+
+    annotate.flip_item(ds, root, item.item_id, "x")
+    b = item.boxes[0]
+    # x-axis mirror: y' = H - y - h = 8 - 2 - 3 = 3, x unchanged
+    assert (b.x, b.y, b.w, b.h) == (5, 3, 2, 3)
+
+
 def test_duplicate_creates_new_id_and_file(dataset):
     ds, root = dataset
     source = ds.items[0]

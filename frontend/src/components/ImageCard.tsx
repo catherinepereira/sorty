@@ -1,6 +1,7 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import type { Item } from "../types";
 import { StatusChip } from "./StatusChip";
+import { BoxOverlay } from "./BoxOverlay";
 import { TrashIcon } from "./icons";
 import { prettyClass } from "../classname";
 
@@ -28,6 +29,9 @@ export const ImageCard = memo(function ImageCard({
   };
 
   const name = prettyClass(item.label);
+  const hasBoxes = item.boxes.length > 0;
+  // natural pixel size, needed to scale the box overlay; captured on image load
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
 
   return (
     <div
@@ -57,12 +61,39 @@ export const ImageCard = memo(function ImageCard({
         <TrashIcon className="h-3.5 w-3.5" />
       </button>
       <button className="block w-full" onClick={clickCard}>
-        <img
-          src={item.url}
-          alt={name}
-          className="aspect-square w-full object-cover"
-          loading="lazy"
-        />
+        {hasBoxes ? (
+          // annotated: letterbox the image and wrap it tightly so the box overlay,
+          // scaled to natural pixels, lines up with the rendered image rect
+          <div className="bg-bg flex aspect-square w-full items-center justify-center">
+            <div className="relative">
+              <img
+                src={item.url}
+                alt={name}
+                onLoad={(e) =>
+                  setNatural({
+                    w: e.currentTarget.naturalWidth,
+                    h: e.currentTarget.naturalHeight,
+                  })
+                }
+                className="block max-h-full w-auto object-contain"
+                style={{ maxHeight: "100%", maxWidth: "100%" }}
+                loading="lazy"
+              />
+              <BoxOverlay
+                boxes={item.boxes}
+                natural={natural}
+                showLabels={false}
+              />
+            </div>
+          </div>
+        ) : (
+          <img
+            src={item.url}
+            alt={name}
+            className="aspect-square w-full object-cover"
+            loading="lazy"
+          />
+        )}
       </button>
       <div className="flex items-center justify-between gap-2 p-2">
         <span className="truncate text-sm" title={name}>

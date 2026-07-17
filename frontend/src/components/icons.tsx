@@ -98,6 +98,16 @@ export function FlipVIcon(p: IconProps) {
   );
 }
 
+export function BoxIcon(p: IconProps) {
+  // a rectangle with a corner handle, for drawing detection boxes
+  return (
+    <Svg {...p}>
+      <rect x="4" y="6" width="13" height="11" rx="1" />
+      <rect x="14" y="14" width="6" height="6" rx="1" />
+    </Svg>
+  );
+}
+
 export function ForkIcon(p: IconProps) {
   // one path splitting in two, for creating train/test sets
   return (

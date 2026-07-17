@@ -12,7 +12,7 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
-from sorty.core import Dataset, DatasetItem, ReviewStatus, slugify
+from sorty.core import Box, Dataset, DatasetItem, ReviewStatus, slugify
 from sorty.core.paths import SPLIT_DIRS
 
 
@@ -115,13 +115,59 @@ def duplicate_item(ds: Dataset, root: Path, item_id: str) -> DatasetItem:
     return copy
 
 
+def set_boxes(ds: Dataset, item_id: str, boxes: list[Box], width: int, height: int) -> None:
+    """Replace an item's detection boxes, clamped to the image bounds.
+
+    Coordinates arrive in COCO pixels of the current image. Each box is clamped so it
+    stays inside width x height, and any that clamps down to nothing is dropped.
+    """
+    item = find_item(ds, item_id)
+    kept: list[Box] = []
+    for box in boxes:
+        if not box.label:
+            raise ValueError("Every box needs a class label.")
+        x = max(0.0, min(box.x, width))
+        y = max(0.0, min(box.y, height))
+        w = min(box.w, width - x)
+        h = min(box.h, height - y)
+        if w >= 1 and h >= 1:
+            kept.append(Box(x=x, y=y, w=w, h=h, label=box.label))
+    item.boxes = kept
+    ds.touch()
+
+
+def _crop_boxes(boxes: list[Box], left: int, top: int, width: int, height: int) -> list[Box]:
+    """Shift boxes into the cropped frame and clip to it, dropping ones with no overlap."""
+    kept: list[Box] = []
+    for box in boxes:
+        # intersect the box with the crop window, both in the pre-crop pixel frame
+        x0 = max(box.x, left)
+        y0 = max(box.y, top)
+        x1 = min(box.x + box.w, left + width)
+        y1 = min(box.y + box.h, top + height)
+        if x1 - x0 >= 1 and y1 - y0 >= 1:
+            kept.append(Box(x=x0 - left, y=y0 - top, w=x1 - x0, h=y1 - y0, label=box.label))
+    return kept
+
+
+def _flip_boxes(boxes: list[Box], axis: str, width: int, height: int) -> list[Box]:
+    """Mirror boxes to match a flipped image: y-axis mirrors x, x-axis mirrors y."""
+    out: list[Box] = []
+    for box in boxes:
+        if axis == "y":
+            out.append(Box(x=width - box.x - box.w, y=box.y, w=box.w, h=box.h, label=box.label))
+        else:
+            out.append(Box(x=box.x, y=height - box.y - box.h, w=box.w, h=box.h, label=box.label))
+    return out
+
+
 def crop_item(
     ds: Dataset, root: Path, item_id: str, left: int, top: int, width: int, height: int
 ) -> None:
     """Crop an item's image file in place to the given pixel box.
 
     The box must lie fully inside the image. The id, label, and path all stay the same,
-    only the file's pixels change.
+    only the file's pixels change. Detection boxes shift into the new frame and clip to it.
     """
     item = find_item(ds, item_id)
     path = root / item.local_path
@@ -142,26 +188,31 @@ def crop_item(
     if cropped.mode != "RGB" and path.suffix.lower() in {".jpg", ".jpeg"}:
         cropped = cropped.convert("RGB")
     cropped.save(path)
+    item.boxes = _crop_boxes(item.boxes, left, top, width, height)
     ds.touch()
 
 
-def _flip_file(path: Path, axis: str) -> None:
+def _flip_file(path: Path, axis: str) -> tuple[int, int]:
+    """Flip the file in place, returning the (width, height) it had, for box mirroring."""
     with Image.open(path) as raw:
         # bake the EXIF orientation in first, so the flip matches what the browser shows
         img = ImageOps.exif_transpose(raw)
+        size = (img.width, img.height)
         flipped = ImageOps.flip(img) if axis == "x" else ImageOps.mirror(img)
         flipped.load()
     # JPEG can't hold an alpha or palette mode the source may carry
     if flipped.mode != "RGB" and path.suffix.lower() in {".jpg", ".jpeg"}:
         flipped = flipped.convert("RGB")
     flipped.save(path)
+    return size
 
 
 def flip_item(ds: Dataset, root: Path, item_id: str, axis: str) -> None:
     """Mirror an item's image file in place.
 
     axis "y" mirrors left-right (across the vertical axis), "x" flips top-bottom.
-    The id, label, and path all stay the same, only the file's pixels change.
+    The id, label, and path all stay the same, only the file's pixels change. Detection
+    boxes mirror to match.
     """
     if axis not in {"x", "y"}:
         raise ValueError(f"Unknown axis {axis!r}. Choose x or y.")
@@ -169,7 +220,8 @@ def flip_item(ds: Dataset, root: Path, item_id: str, axis: str) -> None:
     path = root / item.local_path
     if not path.exists():
         raise ValueError("The image file is missing on disk.")
-    _flip_file(path, axis)
+    width, height = _flip_file(path, axis)
+    item.boxes = _flip_boxes(item.boxes, axis, width, height)
     ds.touch()
 
 
@@ -189,7 +241,8 @@ def flip_items(ds: Dataset, root: Path, item_ids: list[str], axis: str) -> int:
         path = root / item.local_path
         if not path.exists():
             continue
-        _flip_file(path, axis)
+        width, height = _flip_file(path, axis)
+        item.boxes = _flip_boxes(item.boxes, axis, width, height)
         flipped += 1
     if flipped:
         ds.touch()
