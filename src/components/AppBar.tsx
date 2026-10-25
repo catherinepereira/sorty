@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { GearIcon } from "./icons";
+import { Logo } from "./Logo";
 import { ThemeToggle } from "./ThemeToggle";
 import { SettingsDialog } from "./SettingsDialog";
 import { APP_NAME } from "../config";
@@ -21,7 +22,8 @@ export function AppBar({
   const [settingsOpen, setSettingsOpen] = useState(false);
   return (
     <header className="border-border bg-card flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-6 py-2.5">
-      <Link to="/" className="text-base font-bold">
+      <Link to="/" className="flex items-center gap-2 text-base font-bold">
+        <Logo />
         {APP_NAME}
       </Link>
       {crumbs && (

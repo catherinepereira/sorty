@@ -1,12 +1,14 @@
-<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-  <line x1="32" y1="6" x2="32" y2="14" stroke="#5b8def" stroke-width="2.5" stroke-linecap="round" />
-  <circle cx="32" cy="5" r="3" fill="#ffb454" />
-  <rect x="12" y="14" width="40" height="34" rx="12" fill="#5b8def" />
-  <rect x="17" y="19" width="30" height="20" rx="9" fill="#ffffff" />
-  <circle cx="24" cy="27" r="4.5" fill="#334155" />
-  <circle cx="40" cy="27" r="4.5" fill="#334155" />
-  <circle cx="25.5" cy="25.5" r="1.5" fill="#ffffff" />
-  <circle cx="41.5" cy="25.5" r="1.5" fill="#ffffff" />
-  <rect x="8" y="26" width="4" height="12" rx="2" fill="#5b8def" />
-  <rect x="52" y="26" width="4" height="12" rx="2" fill="#5b8def" />
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <style>
+    .accent { fill: #1d4ed8; }
+    .ink { fill: #1b1f24; }
+    @media (prefers-color-scheme: dark) {
+      .accent { fill: #5b8def; }
+      .ink { fill: #e8ebef; }
+    }
+  </style>
+  <rect class="accent" x="17.5" y="9.5" width="13" height="13" rx="3.2" />
+  <rect class="accent" x="33.5" y="9.5" width="13" height="13" rx="3.2" />
+  <rect class="ink" x="1.5" y="25.5" width="13" height="13" rx="3.2" />
+  <rect class="ink" x="17.5" y="25.5" width="13" height="13" rx="3.2" />
 </svg>
