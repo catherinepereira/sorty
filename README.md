@@ -72,13 +72,12 @@ or any zip with one folder per class, optionally inside `train/`, `test/`, or `v
 
 ## Deploy
 
-Vercel, or any static host, serves `dist/`. `vercel.json` sends client routes to
-`index.html`.
+Vercel, or any static host, serves `dist/`. Pushes to `main` deploy to production.
 
-The build uses `base: "./"`, so it also works under a path. It's set up to be served at `reflect.cv/sorty/`, which isn't done
-yet: sorty-web has no git repo or Vercel deployment, and reflect.cv's Sorty card still
-links the desktop repo. Datasets are stored in OPFS per origin, so data saved on the app's own
-domain doesn't show up under reflect.cv and the other way around.
+The build uses `base: "./"` and hash routes (`#/d/<name>`), so the same build works at a
+domain root and under a path such as `reflect.cv/sorty/` with no rewrite rules. Datasets
+are stored in OPFS per origin, so data saved on the app's own domain doesn't show up under
+reflect.cv and the other way around.
 
 ## Known limitations
 
