@@ -1,0 +1,740 @@
+import { useEffect, useRef, useState } from "react";
+import { Modal } from "./Modal";
+import { Select } from "./Select";
+import { BoxOverlay } from "./BoxOverlay";
+import { boxColor } from "../boxcolor";
+import { prettyClass } from "../classname";
+import { api, ApiError } from "../api";
+import { useDataset } from "../stores/dataset";
+import type { Box, Item, Status } from "../types";
+import { statusLabel } from "../status";
+import { humanBytes, scoreText } from "../format";
+import { getHotkeys } from "../settings";
+import {
+  BackIcon,
+  BoxIcon,
+  CloseIcon,
+  CopyIcon,
+  CropIcon,
+  FlipHIcon,
+  FlipVIcon,
+  TrashIcon,
+} from "./icons";
+
+type FileDetails = {
+  width: number | null;
+  height: number | null;
+  bytes: number | null;
+  ingested: number | null;
+};
+
+// the drag selection over the image, in displayed pixels
+type CropRect = { x: number; y: number; w: number; h: number };
+
+const STATUSES: Status[] = ["pending", "valid"];
+
+// active-state colors per status, so Reviewed reads green like the chip and grid badges do
+const ACTIVE_STATUS: Record<Status, string> = {
+  valid: "bg-good text-white",
+  pending: "bg-primary text-white",
+  invalid: "bg-bad text-white",
+};
+
+export function AnnotateDialog({
+  item,
+  datasetName,
+  classes,
+  reviewLocked = false,
+  onClose,
+  onDelete,
+  onDuplicate,
+  onPrev,
+  onNext,
+}: {
+  item: Item | null;
+  datasetName: string;
+  classes: string[];
+  // the dataset's review lock, disables the status buttons and hotkeys
+  reviewLocked?: boolean;
+  onClose: () => void;
+  onDelete: (id: string) => void;
+  onDuplicate: (id: string) => void;
+  // move to the adjacent image in the grid order, absent at either end
+  onPrev?: () => void;
+  onNext?: () => void;
+}) {
+  const replaceItem = useDataset((s) => s.replaceItem);
+  const [current, setCurrent] = useState<Item | null>(item);
+  const [dims, setDims] = useState<FileDetails | null>(null);
+
+  const [cropping, setCropping] = useState(false);
+  const [sel, setSel] = useState<CropRect | null>(null);
+  // cursor position over the image while cropping, drives the crosshair guides
+  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  const [cropBusy, setCropBusy] = useState(false);
+  const [cropError, setCropError] = useState("");
+  const [flipBusy, setFlipBusy] = useState(false);
+
+  // box-drawing mode: a working copy of the item's boxes, the class new boxes get,
+  // and the box being dragged out now (in displayed pixels, converted on drop)
+  const [boxing, setBoxing] = useState(false);
+  const [boxes, setBoxes] = useState<Box[]>([]);
+  const [boxLabel, setBoxLabel] = useState("");
+  const [boxBusy, setBoxBusy] = useState(false);
+  const [boxError, setBoxError] = useState("");
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
+  const dragStart = useRef<{ x: number; y: number } | null>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  useEffect(() => {
+    setCurrent(item);
+    setCropping(false);
+    setSel(null);
+    setCropError("");
+    setBoxing(false);
+    setBoxError("");
+    setNatural(null);
+    setBoxes(item?.boxes ?? []);
+    setBoxLabel(item?.label ?? "");
+    if (item) {
+      setDims(null);
+      api
+        .getItem(datasetName, item.id)
+        .then((d) =>
+          setDims({
+            width: d.width,
+            height: d.height,
+            bytes: d.bytes,
+            ingested: d.ingested,
+          }),
+        )
+        .catch(() => {});
+    }
+  }, [item, datasetName]);
+
+  // latest handlers for the window-level key listener, which is bound once per open
+  const keyActions = useRef<{
+    prev?: () => void;
+    next?: () => void;
+    mark?: (s: Status) => void;
+  }>({});
+
+  const open = current !== null;
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target;
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement)
+        return;
+      if (e.key === "ArrowLeft") {
+        keyActions.current.prev?.();
+        return;
+      }
+      if (e.key === "ArrowRight") {
+        keyActions.current.next?.();
+        return;
+      }
+      const hotkeys = getHotkeys();
+      if (e.key === hotkeys.valid) keyActions.current.mark?.("valid");
+      else if (e.key === hotkeys.unreviewed)
+        keyActions.current.mark?.("pending");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  if (!current) return null;
+
+  // update both the store (so the grid reflects the change) and the modal's own copy
+  const applied = (updated: Item) => {
+    setCurrent(updated);
+    replaceItem(updated);
+  };
+
+  const setSubject = async (next: string) => {
+    if (!next || next === current.label) return;
+    applied((await api.setLabel(datasetName, current.id, next)).item);
+  };
+
+  const setStatus = async (status: Status) => {
+    applied((await api.setStatus(datasetName, current.id, status)).item);
+  };
+
+  keyActions.current = {
+    prev: onPrev,
+    next: onNext,
+    mark: reviewLocked ? undefined : setStatus,
+  };
+
+  const clampPoint = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return {
+      x: Math.min(Math.max(e.clientX - r.left, 0), r.width),
+      y: Math.min(Math.max(e.clientY - r.top, 0), r.height),
+    };
+  };
+
+  const startDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const p = clampPoint(e);
+    dragStart.current = p;
+    setSel({ x: p.x, y: p.y, w: 0, h: 0 });
+  };
+
+  const moveDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    const p = clampPoint(e);
+    setCursor(p);
+    const s = dragStart.current;
+    if (!s) return;
+    setSel({
+      x: Math.min(s.x, p.x),
+      y: Math.min(s.y, p.y),
+      w: Math.abs(p.x - s.x),
+      h: Math.abs(p.y - s.y),
+    });
+  };
+
+  const endDrag = () => {
+    dragStart.current = null;
+  };
+
+  const exitCrop = () => {
+    setCropping(false);
+    setSel(null);
+    setCursor(null);
+    setCropError("");
+  };
+
+  const applyCrop = async () => {
+    const img = imgRef.current;
+    if (!img || !sel || cropBusy) return;
+    // the drag rect is in displayed pixels, the backend takes original-image pixels
+    const scale = img.naturalWidth / img.clientWidth;
+    const left = Math.max(0, Math.round(sel.x * scale));
+    const top = Math.max(0, Math.round(sel.y * scale));
+    const width = Math.min(
+      img.naturalWidth - left,
+      Math.max(1, Math.round(sel.w * scale)),
+    );
+    const height = Math.min(
+      img.naturalHeight - top,
+      Math.max(1, Math.round(sel.h * scale)),
+    );
+    setCropBusy(true);
+    setCropError("");
+    try {
+      const { item: updated } = await api.cropItem(datasetName, current.id, {
+        left,
+        top,
+        width,
+        height,
+      });
+      // an edited file comes back under a new blob URL, so both copies reload
+      applied(updated);
+      setDims({
+        width: updated.width,
+        height: updated.height,
+        bytes: updated.bytes,
+        ingested: updated.ingested,
+      });
+      exitCrop();
+    } catch (e) {
+      setCropError(
+        e instanceof ApiError ? e.message : "Could not crop the image",
+      );
+    } finally {
+      setCropBusy(false);
+    }
+  };
+
+  const applyFlip = async (axis: "x" | "y") => {
+    if (flipBusy) return;
+    setFlipBusy(true);
+    try {
+      const { item: updated } = await api.flipItem(
+        datasetName,
+        current.id,
+        axis,
+      );
+      applied(updated);
+      setDims({
+        width: updated.width,
+        height: updated.height,
+        bytes: updated.bytes,
+        ingested: updated.ingested,
+      });
+    } finally {
+      setFlipBusy(false);
+    }
+  };
+
+  // in boxing mode a finished drag becomes a new box, converted to natural pixels
+  const endBoxDrag = () => {
+    dragStart.current = null;
+    const img = imgRef.current;
+    if (!img || !sel || sel.w < 2 || sel.h < 2) {
+      setSel(null);
+      return;
+    }
+    const scale = img.naturalWidth / img.clientWidth;
+    const box: Box = {
+      x: Math.round(sel.x * scale),
+      y: Math.round(sel.y * scale),
+      w: Math.round(sel.w * scale),
+      h: Math.round(sel.h * scale),
+      label: boxLabel,
+    };
+    setBoxes((bs) => [...bs, box]);
+    setSel(null);
+  };
+
+  const removeBox = (idx: number) =>
+    setBoxes((bs) => bs.filter((_, i) => i !== idx));
+
+  const exitBoxing = () => {
+    setBoxing(false);
+    setSel(null);
+    setCursor(null);
+    setBoxError("");
+    setBoxes(current.boxes);
+  };
+
+  const saveBoxes = async () => {
+    const img = imgRef.current;
+    if (!img || boxBusy) return;
+    setBoxBusy(true);
+    setBoxError("");
+    try {
+      const { item: updated } = await api.setBoxes(
+        datasetName,
+        current.id,
+        boxes,
+        img.naturalWidth,
+        img.naturalHeight,
+      );
+      applied(updated);
+      setBoxes(updated.boxes);
+      setBoxing(false);
+    } catch (e) {
+      setBoxError(
+        e instanceof ApiError ? e.message : "Could not save the boxes",
+      );
+    } finally {
+      setBoxBusy(false);
+    }
+  };
+
+  // the current class may be one the dataset no longer declares, so include it as an option
+  const classOptions = (
+    classes.includes(current.label) ? classes : [current.label, ...classes]
+  ).map((c) => ({ value: c, label: prettyClass(c) }));
+
+  return (
+    <Modal open onClose={onClose} width="max-w-xl">
+      {onPrev && (
+        <button
+          onClick={onPrev}
+          className="bg-card border-border text-muted hover:text-primary absolute top-1/2 -left-16 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg"
+          title="Previous image"
+          aria-label="Previous image"
+        >
+          <BackIcon className="h-5 w-5" />
+        </button>
+      )}
+      {onNext && (
+        <button
+          onClick={onNext}
+          className="bg-card border-border text-muted hover:text-primary absolute top-1/2 -right-16 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg"
+          title="Next image"
+          aria-label="Next image"
+        >
+          <BackIcon className="h-5 w-5 rotate-180" />
+        </button>
+      )}
+      <div className="space-y-5">
+        <div className="flex items-center gap-2">
+          <h2 className="flex-1 truncate text-lg font-semibold">
+            {prettyClass(current.label)}
+          </h2>
+          <button
+            onClick={() => {
+              if (cropping) {
+                exitCrop();
+                return;
+              }
+              setCropping(true);
+            }}
+            className={`flex h-8 w-8 items-center justify-center rounded-full ${
+              cropping
+                ? "bg-primary text-white"
+                : "border-border text-muted hover:text-primary border"
+            }`}
+            title="Crop image"
+            aria-label="Crop image"
+          >
+            <CropIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => {
+              if (boxing) {
+                exitBoxing();
+                return;
+              }
+              setBoxes(current.boxes);
+              setBoxLabel(current.label);
+              setBoxing(true);
+            }}
+            className={`flex h-8 w-8 items-center justify-center rounded-full ${
+              boxing
+                ? "bg-primary text-white"
+                : "border-border text-muted hover:text-primary border"
+            }`}
+            title="Draw detection boxes"
+            aria-label="Draw detection boxes"
+          >
+            <BoxIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => applyFlip("y")}
+            disabled={flipBusy}
+            className="border-border text-muted hover:text-primary flex h-8 w-8 items-center justify-center rounded-full border disabled:opacity-40"
+            title="Mirror left-right (y-axis)"
+            aria-label="Mirror left-right"
+          >
+            <FlipHIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => applyFlip("x")}
+            disabled={flipBusy}
+            className="border-border text-muted hover:text-primary flex h-8 w-8 items-center justify-center rounded-full border disabled:opacity-40"
+            title="Flip top-bottom (x-axis)"
+            aria-label="Flip top-bottom"
+          >
+            <FlipVIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => onDuplicate(current.id)}
+            className="border-border text-muted hover:text-primary flex h-8 w-8 items-center justify-center rounded-full border"
+            title="Duplicate image (new copy with its own id)"
+            aria-label="Duplicate image"
+          >
+            <CopyIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => onDelete(current.id)}
+            className="bg-bad/90 flex h-8 w-8 items-center justify-center rounded-full text-white hover:brightness-95"
+            title="Delete to bin"
+            aria-label="Delete to bin"
+          >
+            <TrashIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={onClose}
+            className="border-border text-muted hover:bg-bg flex h-8 w-8 items-center justify-center rounded-full border"
+            title="Close"
+            aria-label="Close"
+          >
+            <CloseIcon className="h-4 w-4" />
+          </button>
+        </div>
+
+        {cropping ? (
+          <div className="bg-bg flex justify-center rounded-lg">
+            <div
+              className="relative cursor-crosshair touch-none select-none"
+              onPointerDown={startDrag}
+              onPointerMove={moveDrag}
+              onPointerUp={endDrag}
+              onPointerLeave={() => setCursor(null)}
+            >
+              <img
+                ref={imgRef}
+                src={current.url}
+                alt={prettyClass(current.label)}
+                draggable={false}
+                className="block max-h-[60vh] max-w-full"
+              />
+              {cursor && (
+                <>
+                  <div
+                    className="bg-primary/60 pointer-events-none absolute right-0 left-0"
+                    style={{ top: cursor.y, height: 1 }}
+                  />
+                  <div
+                    className="bg-primary/60 pointer-events-none absolute top-0 bottom-0"
+                    style={{ left: cursor.x, width: 1 }}
+                  />
+                </>
+              )}
+              {sel && sel.w > 0 && sel.h > 0 && (
+                <div
+                  className="border-primary bg-primary/20 pointer-events-none absolute border-2"
+                  style={{
+                    left: sel.x,
+                    top: sel.y,
+                    width: sel.w,
+                    height: sel.h,
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        ) : boxing ? (
+          <div className="bg-bg flex justify-center rounded-lg">
+            <div
+              className="relative cursor-crosshair touch-none select-none"
+              onPointerDown={startDrag}
+              onPointerMove={moveDrag}
+              onPointerUp={endBoxDrag}
+            >
+              <img
+                ref={imgRef}
+                src={current.url}
+                alt={prettyClass(current.label)}
+                draggable={false}
+                onLoad={(e) =>
+                  setNatural({
+                    w: e.currentTarget.naturalWidth,
+                    h: e.currentTarget.naturalHeight,
+                  })
+                }
+                className="block max-h-[60vh] max-w-full"
+              />
+              {/* saved boxes, each click-to-delete via a small handle */}
+              {natural &&
+                boxes.map((b, i) => (
+                  <div
+                    key={i}
+                    className="absolute border-2"
+                    style={{
+                      left: `${(b.x / natural.w) * 100}%`,
+                      top: `${(b.y / natural.h) * 100}%`,
+                      width: `${(b.w / natural.w) * 100}%`,
+                      height: `${(b.h / natural.h) * 100}%`,
+                      borderColor: boxColor(b.label),
+                    }}
+                  >
+                    <span
+                      className="absolute top-0 left-0 -translate-y-full px-1 text-[10px] leading-tight font-medium text-white"
+                      style={{ backgroundColor: boxColor(b.label) }}
+                    >
+                      {prettyClass(b.label)}
+                    </span>
+                    <button
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => removeBox(i)}
+                      className="bg-bad absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full text-white"
+                      title="Remove box"
+                      aria-label="Remove box"
+                    >
+                      <CloseIcon className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              {sel && sel.w > 0 && sel.h > 0 && (
+                <div
+                  className="border-primary bg-primary/20 pointer-events-none absolute border-2 border-dashed"
+                  style={{
+                    left: sel.x,
+                    top: sel.y,
+                    width: sel.w,
+                    height: sel.h,
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="bg-bg flex justify-center rounded-lg">
+            <div className="relative">
+              <img
+                src={current.url}
+                alt={prettyClass(current.label)}
+                onLoad={(e) =>
+                  setNatural({
+                    w: e.currentTarget.naturalWidth,
+                    h: e.currentTarget.naturalHeight,
+                  })
+                }
+                className="block max-h-[60vh] max-w-full rounded-lg"
+              />
+              {current.boxes.length > 0 && (
+                <BoxOverlay boxes={current.boxes} natural={natural} />
+              )}
+            </div>
+          </div>
+        )}
+
+        {cropping && (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-muted flex-1 text-sm">
+              Drag on the image to choose the area to keep.
+            </p>
+            <button
+              onClick={exitCrop}
+              className="text-muted hover:text-text px-3 py-1.5 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={applyCrop}
+              disabled={cropBusy || !sel || sel.w < 2 || sel.h < 2}
+              className="bg-primary rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {cropBusy ? "Cropping" : "Apply crop"}
+            </button>
+            {cropError && (
+              <p className="text-bad w-full text-sm">{cropError}</p>
+            )}
+          </div>
+        )}
+
+        {boxing && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-40">
+                <label className="text-muted mb-1 block text-xs font-medium">
+                  New box class
+                </label>
+                <Select
+                  className="w-44"
+                  value={boxLabel}
+                  placeholder="Choose class"
+                  options={classOptions}
+                  onChange={setBoxLabel}
+                />
+              </div>
+              <p className="text-muted flex-1 text-sm">
+                Drag on the image to add a {prettyClass(boxLabel)} box.{" "}
+                {boxes.length} box{boxes.length === 1 ? "" : "es"} on this
+                image.
+              </p>
+              <button
+                onClick={exitBoxing}
+                className="text-muted hover:text-text px-3 py-1.5 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveBoxes}
+                disabled={boxBusy}
+                className="bg-primary rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {boxBusy ? "Saving" : "Save boxes"}
+              </button>
+            </div>
+            {boxError && <p className="text-bad text-sm">{boxError}</p>}
+          </div>
+        )}
+
+        <hr className="border-border" />
+
+        <ItemDetail item={current} dims={dims} />
+
+        <hr className="border-border" />
+
+        <div className="flex flex-wrap items-end gap-4 pb-1">
+          <div className="min-w-40 flex-1">
+            <label className="text-sm font-medium">Class</label>
+            <Select
+              className="mt-1"
+              value={current.label}
+              placeholder="Choose class"
+              options={classOptions}
+              onChange={setSubject}
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Status</label>
+            <div className="mt-1 flex gap-2">
+              {STATUSES.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStatus(s)}
+                  disabled={reviewLocked}
+                  title={
+                    reviewLocked
+                      ? "Reviewing is locked for this dataset"
+                      : undefined
+                  }
+                  className={`rounded-lg px-3 py-1.5 text-sm ${
+                    current.status === s
+                      ? ACTIVE_STATUS[s]
+                      : "border-border text-muted hover:bg-bg border"
+                  } ${reviewLocked ? "cursor-not-allowed opacity-40" : ""}`}
+                >
+                  {statusLabel(s)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ItemDetail({ item, dims }: { item: Item; dims: FileDetails | null }) {
+  return (
+    <dl className="space-y-1 text-sm">
+      <Row label="Source" value={item.source} />
+      {item.source_url && (
+        <div className="flex justify-between gap-2">
+          <dt className="text-muted shrink-0">Source URL</dt>
+          <a
+            href={item.source_url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary max-w-[50%] truncate hover:underline"
+            title={item.source_url}
+          >
+            {item.source_url}
+          </a>
+        </div>
+      )}
+      {item.title && <Row label="Title" value={item.title} />}
+      <Row label="Folder" value={item.directory} />
+      <Row label="File" value={item.filename} />
+      {dims && dims.width && (
+        <Row label="Size" value={`${dims.width}×${dims.height}`} />
+      )}
+      {item.boxes.length > 0 && (
+        <Row
+          label="Boxes"
+          value={`${item.boxes.length} detection box${item.boxes.length === 1 ? "" : "es"}`}
+        />
+      )}
+      {dims && dims.bytes != null && (
+        <Row label="File size" value={humanBytes(dims.bytes)} />
+      )}
+      {dims && dims.ingested != null && (
+        <Row
+          label="Ingested"
+          value={new Date(dims.ingested * 1000).toLocaleString()}
+        />
+      )}
+      {item.predicted && (
+        <div className="flex justify-between gap-2 pt-3">
+          <dt className="text-muted">Model prediction</dt>
+          <dd
+            className={item.predicted === item.label ? "text-good" : "text-bad"}
+          >
+            {prettyClass(item.predicted)}{" "}
+            <span className="font-mono">{scoreText(item.predicted_score)}</span>
+          </dd>
+        </div>
+      )}
+    </dl>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-2">
+      <dt className="text-muted shrink-0">{label}</dt>
+      <dd className="max-w-[50%] truncate" title={value}>
+        {value}
+      </dd>
+    </div>
+  );
+}
