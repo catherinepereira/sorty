@@ -6,7 +6,7 @@ and export it all as a zip. It's a static site: no server, no account, no API ke
 are stored in the browser's origin private file system (OPFS) and models run on the device,
 with WebGPU when available.
 
-Sorty 2.0, the successor to the desktop [Sorty](https://github.com/catherinepereira/sorty).
+Sorty 2.0, the successor to the desktop [Sorty](https://github.com/catherinepereira/sorty-old).
 
 ## Features
 

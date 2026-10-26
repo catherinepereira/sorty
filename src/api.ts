@@ -145,11 +145,44 @@ function checkTrain(body: { model: string; epochs: number }) {
   }
 }
 
+const DEMO_URL = `${import.meta.env.BASE_URL}demo/pnw-birds.zip`;
+const DEMO_SEEDED = "sorty.demoSeeded";
+
+async function importDemo(): Promise<string> {
+  const resp = await fetch(DEMO_URL);
+  if (!resp.ok) throw notFound("The demo dataset is missing from this build");
+  void navigator.storage.persist?.();
+  return importZip(new File([await resp.blob()], "pnw-birds.zip"));
+}
+
+let seeding: Promise<void> | null = null;
+
+/**
+ * Give a first visit the PNW birds demo. Runs once per browser, so deleting the demo
+ * keeps it gone, and a workspace that already has datasets is left alone
+ */
+function seedDemo(): Promise<void> {
+  // the lock covers two tabs opening at once, the promise covers StrictMode's double effect
+  return (seeding ??= navigator.locks.request("sorty:demo", async () => {
+    try {
+      if (localStorage.getItem(DEMO_SEEDED)) return;
+      if (!(await workspace.listDatasets()).length) await importDemo();
+      localStorage.setItem(DEMO_SEEDED, "1");
+    } catch (e) {
+      console.warn("Could not load the demo dataset", e);
+    }
+  }));
+}
+
 export const api = {
   // no contact email here, a browser can't set the User-Agent sources would read it from
   sources: () => Object.keys(REGISTRY),
 
-  listDatasets: (): Promise<DatasetSummary[]> => workspace.listDatasets(),
+  listDatasets: async (): Promise<DatasetSummary[]> => {
+    await seedDemo();
+    return workspace.listDatasets();
+  },
+  loadDemo: async () => ({ name: await importDemo() }),
   createDataset: async (name: string) => {
     // ask the browser not to evict datasets under storage pressure
     void navigator.storage.persist?.();

@@ -3,8 +3,8 @@
     .accent { fill: #1d4ed8; }
     .ink { fill: #1b1f24; }
     @media (prefers-color-scheme: dark) {
-      .accent { fill: #5b8def; }
-      .ink { fill: #e8ebef; }
+      .accent { fill: #3b82f6; }
+      .ink { fill: #f4f4f5; }
     }
   </style>
   <rect class="accent" x="17.5" y="9.5" width="13" height="13" rx="3.2" />

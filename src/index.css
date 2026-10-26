@@ -30,25 +30,28 @@
   --font-mono: "Source Code Pro", ui-monospace, monospace;
 }
 
+/* Tailwind's zinc and blue, the same dark palette as the Explorables sites:
+   zinc-900 page, zinc-800 surfaces, zinc-700 lines, zinc-100 text, blue-500 accent.
+   The soft fills are the 950 shades at 30% over zinc-900 */
 html.dark {
   color-scheme: dark;
-  --color-bg: #14171b;
-  --color-card: #1c2026;
-  --color-border: #313741;
-  --color-subtle: #262b33;
-  --color-primary: #5b8def;
-  --color-primary-soft: #1d2740;
-  --color-primary-line: #34477a;
-  --color-text: #e8ebef;
-  --color-muted: #9aa3ae;
-  --color-good: #6fd394;
-  --color-good-soft: #17301f;
-  --color-bad: #f2867b;
-  --color-bad-line: #6b2b26;
-  --color-warn: #f0b663;
-  --color-warn-soft: #2e2416;
-  --color-warn-line: #6b4e22;
-  --color-pending: #c3cad3;
+  --color-bg: #18181b;
+  --color-card: #1f1f23;
+  --color-border: #3f3f46;
+  --color-subtle: #27272a;
+  --color-primary: #3b82f6;
+  --color-primary-soft: #181c2c;
+  --color-primary-line: #1e3a8a;
+  --color-text: #f4f4f5;
+  --color-muted: #a1a1aa;
+  --color-good: #4ade80;
+  --color-good-soft: #121f1a;
+  --color-bad: #f87171;
+  --color-bad-line: #7f1d1d;
+  --color-warn: #fbbf24;
+  --color-warn-soft: #261914;
+  --color-warn-line: #b45309;
+  --color-pending: #d4d4d8;
 }
 
 body {

@@ -43,11 +43,11 @@ export function Home() {
     }
   };
 
-  const importZip = async (file: File) => {
+  const runImport = async (fn: () => Promise<{ name: string }>) => {
     setImporting(true);
     setError("");
     try {
-      const { name } = await api.importZip(file);
+      const { name } = await fn();
       nav(`/d/${name}`);
     } catch (e) {
       console.error(e);
@@ -60,6 +60,7 @@ export function Home() {
       setImporting(false);
     }
   };
+  const importZip = (file: File) => runImport(() => api.importZip(file));
 
   const importButton = (
     <label
@@ -116,12 +117,21 @@ export function Home() {
             {error}
           </p>
         )}
-        {datasets && datasets.length === 0 ? (
+        {datasets === null ? (
+          <p className="text-muted py-16 text-center">Loading datasets</p>
+        ) : datasets.length === 0 ? (
           <div className="border-border bg-card flex flex-col items-center gap-3 rounded-lg border px-6 py-16 text-center">
             <p className="text-muted">
               No datasets yet. Datasets are stored in this browser.
             </p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap justify-center gap-2">
+              <button
+                className={btn}
+                onClick={() => runImport(api.loadDemo)}
+                disabled={importing}
+              >
+                Load the PNW birds demo
+              </button>
               {importButton}
               <button
                 className={btnPrimary}
